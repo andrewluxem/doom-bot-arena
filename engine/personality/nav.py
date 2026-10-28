@@ -26,7 +26,7 @@ import pickle
 from engine.geometry import (PLAYER_HEIGHT, STEP_HEIGHT, Grid, MapGeometry, dist_point_segment, orient,
                              segments_cross)
 
-VERSION = 4
+VERSION = 5
 GRID = 32
 RADIUS = 16  # player radius
 NODE_CLEARANCE = 17
@@ -34,8 +34,10 @@ PORTAL_OFFSET = 24
 LINK_RADIUS = 64
 DOOR_COST = 48  # extra cost of a door edge (stop, use, wait)
 
-MANUAL_DOORS = {1, 26, 27, 28, 31, 32, 33, 34, 117, 118}
-REMOTE_DOORS = {2, 4, 29, 46, 61, 63, 86, 90, 103, 105, 106, 108, 109, 111, 112, 114, 115, 133, 134, 135, 136, 137}
+MANUAL_DOORS = {1, 31, 117, 118}
+REMOTE_DOORS = {2, 4, 29, 46, 61, 63, 86, 90, 103, 105, 106, 108, 109, 111, 112, 114, 115}
+# Key-locked doors. Keys do not spawn in deathmatch (MF_NOTDMATCH), so these never open: walls.
+LOCKED_DOORS = {26, 27, 28, 32, 33, 34, 99, 133, 134, 135, 136, 137}
 LIFTS = {10, 21, 62, 88, 120, 121, 122, 123}
 TELEPORTS = {39, 97, 125, 126}
 USABLE_KINDS = {"walk", "door", "remote_door", "teleport", "lift"}
@@ -79,7 +81,7 @@ class Line:
         self.front, self.back = l["front_sector"], l["back_sector"]
         self.special, self.tag = l["special"], l["tag"]
         self.teleport = l["special"] in TELEPORTS and l["two_sided"]
-        self.solid = (not l["two_sided"]) or l["impassable"] or l.get("exit", False)
+        self.solid = (not l["two_sided"]) or l["impassable"] or l.get("exit", False) or l["special"] in LOCKED_DOORS
 
 
 class NavGraph:
