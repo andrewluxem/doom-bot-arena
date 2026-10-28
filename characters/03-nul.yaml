@@ -42,8 +42,8 @@ spots:
     - ammo_empty: true
 
 signature:
-  - metric: frags_within_1s_of_visibility_share
-    op: ">"
+  - metric: frags_within_1500ms_of_visibility_share
+    op: ">="
     value: 0.5
   - metric: distance_traveled_rank   # 1 = least of the 8
     op: "<="

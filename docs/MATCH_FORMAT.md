@@ -1,6 +1,6 @@
 # Match bundle format
 
-**schema_version 2.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
+**schema_version 3.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
 
 ```
 bundles/<id>/
@@ -12,7 +12,7 @@ bundles/<id>/
   pov/slot1.mp4 … pov/slot8.mp4
 ```
 
-Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. The validator still accepts schema 1 bundles, such as the viewer's milestone 1B sample.
+Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. Schema 3 adds the damage counters `hitcount`, `damagecount` and `damage_taken` to every row. The validator still accepts schema 1 and 2 bundles, such as the viewer's samples.
 
 `id` = `<UTC yyyymmddThhmmssZ>-<map>-s<seed>`, e.g. `20261028T041144Z-MAP01-s1234`.
 
@@ -192,8 +192,18 @@ NUL has just picked up the rocket launcher and selected it; the engine still hol
 | `weapon_name` | controller | schema 2. The weapon the bot itself last selected (`characters/README.md` names), or `null` before it has selected one or while it holds no usable allowed weapon. It can lead `weapon` by the switch time (about 15 tics) and differ from it after the engine switches away from an empty weapon. For personality bots it is always one of `bots[].weapons_resolved` |
 | `target_slot` | controller | schema 2. The slot the bot is engaging: the enemy it is aiming at, from the first tic it is in view and named (two tics after a new label appears; section 2a) until 0.6 s after it leaves view, or `null`. Personality bots name a target only while they may fight it (an ambusher's fire window, `engage_health_min`). A placeholder names the nearest visible player it is shooting at |
 | `sector` | engine | schema 2. Engine sector id of the player's own actor (`state.objects`, used for nothing else). Sector ids are `map.json` `sectors` indices |
+| `hitcount` | `HITCOUNT` | schema 3. Hits this player has landed on other players since the match began |
+| `damagecount` | `DAMAGECOUNT` | schema 3. Damage this player has dealt to other players since the match began |
+| `damage_taken` | `DAMAGE_TAKEN` | schema 3. Damage this player has taken since the match began, from anyone: other players, its own splash, the world |
 
 Each process writes only its own slot's rows.
+
+**Damage counters** (ViZDoom `VIZ_LogDmg`, read in the 1.3.0 source and probed on 1.3.2):
+- They are cumulative over the whole match and do not reset on death or respawn.
+- Every hit on a player counts its damage after armor, not clamped to the health left, so overkill counts. Hits over 1000 (telefrags) are ignored.
+- `damage_taken` counts all of them. `damagecount` and `hitcount` count only damage this player dealt to another player: its own splash is in its `damage_taken` and nowhere else.
+- A barrel's blast counts for the player who set the barrel off: in the controlled bench's barrel stage, the shooter's `damagecount` rose 324 over 3 hits at the blast tic, 128 of it the staged victim's.
+- The counter moves at the tic the damage lands: for a rocket, at impact, not at the shot.
 
 **Target identity** follows the fairness rule in section 2a. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
 
@@ -311,6 +321,7 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
   - `target_slot` is `null` or another slot, only on alive rows, and that slot was alive at some tic in the last 35.
   - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point, except within 1.5 units of a sector boundary (the validator prints how many such rows it allowed).
   - The scoreboard is off for every slot, every bot has a `controller` and `weapons_resolved`, and `spots.json` candidates and chosen spots are well formed.
+- **Schema 3 fields.** The damage counters are non-negative integers that never fall. In every tic the damage all players dealt to other players is at most the damage all players took.
 - **Events.** Every death event's `source` re-parses to the same event. Event counts match.
 - **Pairing.**
   - Every `alive` true→false in a slot's rows has exactly one death event for that slot at that tic.

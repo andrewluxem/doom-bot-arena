@@ -148,6 +148,7 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array):
             "health": int(v["HEALTH"]), "armor": int(v["ARMOR"]), "weapon": int(v["SELECTED_WEAPON"]),
             "alive": alive, "behavior": behavior, "utility_scores": utility,
             "weapon_name": info.get("weapon_name"), "target_slot": info.get("target_slot"), "sector": sector,
+            "hitcount": int(v["HITCOUNT"]), "damagecount": int(v["DAMAGECOUNT"]), "damage_taken": int(v["DAMAGE_TAKEN"]),
         }) + "\n")
         fragvec.write(json.dumps([t] + [int(v[f"PLAYER{i}_FRAGCOUNT"]) for i in range(1, 9)]) + "\n")
         for line in (st.notifications_buffer or "").splitlines():

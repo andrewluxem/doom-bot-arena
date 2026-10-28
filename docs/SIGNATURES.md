@@ -2,12 +2,14 @@
 
 Every metric named in a `signature` block of `characters/*.yaml`, defined so it can be computed from a bundle's `tics.jsonl` and `events.jsonl`. Two metrics also need item positions from the bundle's `map.json`; they say so. `tools/signatures.py` implements them and reports each bot against its sheet's thresholds.
 
-A sheet's signature is met in a match when every one of its metrics passes its `op` and `value`. A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass.
+A sheet's signature is met in a match when every one of its metrics passes its `op` and `value`. A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass. `tools/signatures.py --compare` prints each metric for all eight bots, so a personality can be read against the placeholders.
 
-Three metrics cannot be computed as named, because schema 2 records no damage and no shots. Each is defined below by the closest quantity the bundle does record, and marked **proxy**:
-- `melee_damage_share`
-- `chainsaw_damage_share`
-- `approach_outside_view_cone_share`
+Three metrics use the damage counters schema 3 adds (`hitcount`, `damagecount`, `damage_taken`), so they are `n/a` on schema 1 and 2 bundles: `melee_damage_share`, `chainsaw_damage_share` and `approach_outside_view_cone_share`.
+
+Thresholds changed on 2026-10-28, after the first five-match report:
+- VEX: `median_kill_distance < 160` and `closing_share > 0.6` replaced `median_engagement_distance < 320` and `moving_forward_share > 0.6`.
+- HEX: `median_first_sight_engagement_distance > 500` replaced `median_engagement_distance > 500`.
+- NUL: `frags_within_1500ms_of_visibility_share >= 0.5` replaced `frags_within_1s_of_visibility_share > 0.5`.
 
 ## Common terms
 
@@ -18,21 +20,33 @@ Three metrics cannot be computed as named, because schema 2 records no damage an
 - **Engagement tic.** An alive row whose `target_slot` is not null, while the target's row at the same tic is alive.
   - Its **engagement distance** is the 2D distance between the two rows' `x, y`.
   - `target_slot` starts on the first tic the target is in the bot's view and lasts until 0.6 s after it leaves view (docs/MATCH_FORMAT.md section 5). It is the bot's own report: it names whom the bot engages, not who engages the bot.
-- **Engagement.** A maximal run of consecutive tics of one bot with the same non-null `target_slot`. Its start is the run's first tic.
+- **Engagement.** A maximal run of consecutive tics of one bot with the same non-null `target_slot`. Its start is the run's first tic: two tics after the target's label first appeared, since naming a new label takes two tics (docs/MATCH_FORMAT.md section 2a).
 - **Pickup.** An alive step where `health` or `armor` rises, outside the first tic of a life. A rise in `armor` is an armor pickup; a rise in `health` is a health pickup. Ammo is not recorded, so ammo pickups are not seen. Items that do not raise a value at the moment (green armor at 100 or more) are not picked up in Doom either.
 - **Rank.** Competition ranking over the eight bots ("1224"): ties share the better rank.
+- **Kill.** A credited `frag` event in the displayed match whose `actor` is the bot (any key, barrels included).
+- **Damage dealt at tic t.** The rise in the bot's `damagecount` from `t − 1` to `t`. It is attributed to the weapon the bot held at `t − 1` (`weapon`, `weapon_name`), since an attack registers the tic after it is pressed. A rocket's damage lands at impact, so it is attributed to whatever is held then.
 
 ## Definitions
 
 ### median_engagement_distance
 Median engagement distance over all of the bot's engagement tics in the displayed match. Each tic counts once, so long fights weigh more than short ones. `n/a` with fewer than 35 engagement tics.
 
-Used by VEX (`< 320`), ASH (`< 96`) and HEX (`> 500`).
+ASH `< 96`.
 
-### moving_forward_share
-Share of the bot's steps whose displacement, projected on its facing at `t − 1` (`angle`, 0 = east, counter-clockwise), exceeds 1 unit. Standing still, strafing and backing up all count against it.
+### median_kill_distance
+Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's kills. `n/a` with no kills. Where a rusher fights, not where it first sees someone.
+
+VEX `< 160`.
+
+### closing_share
+Over the bot's steps whose row at `t` has `behavior: IN_COMBAT` and the same non-null `target_slot` as the row at `t − 1`, with the target alive at both tics: the share where the distance to the target at `t` is smaller than at `t − 1`. Either player's movement counts. `n/a` with no such steps.
 
 VEX `> 0.6`.
+
+### median_first_sight_engagement_distance
+Median distance to the target at the start of each of the bot's engagements in the displayed match (target alive at that tic). It measures how far away the bot picks fights up, not how close they end. `n/a` with no engagements.
+
+HEX `> 500`.
 
 ### stationary_share
 Share of the bot's alive tics in the displayed match at which it is within 32 units of where it was 35 tics earlier, in the same life. The first 35 tics of each life cannot qualify. Small strafes around a held spot count as stationary; knockback that moves the bot more than 32 units in a second does not.
@@ -44,15 +58,15 @@ Each bot's distance travelled is the sum of its step lengths in the displayed ma
 
 NUL `<= 2`.
 
-### frags_within_1s_of_visibility_share
-Over the bot's credited `frag` events in the displayed match (any key, barrels included), the share where the victim had been in view for at most 1 s when it died:
+### frags_within_1500ms_of_visibility_share
+Over the bot's kills, the share where the victim had been in view for at most 1.5 s when it died:
 - find the bot's last tic `s ≤` the frag tic with `target_slot` equal to the victim;
-- if `s` is more than 35 tics before the frag, the frag does not count as within 1 s (the victim was not the bot's target in the last second);
-- otherwise take the start `r` of the engagement containing `s`; the frag counts if `frag_tic − r ≤ 35`.
+- if `s` is more than 35 tics before the frag, the kill does not count (the victim was not the bot's target in the last second);
+- otherwise take the start `r` of the engagement containing `s`; the kill counts if `frag_tic − r ≤ 52.5` tics.
 
-Rocket flight time counts: a rocket fired 0.9 s after the target appeared and landing 0.5 s later is a frag at 1.4 s. `n/a` with no frags.
+Rocket flight time counts. Because an engagement starts two tics after the label appears, the measured time is 0.06 s short of the true time in view. `n/a` with no kills.
 
-NUL `> 0.5`.
+NUL `>= 0.5`. The cutoff is 0.5 s longer than NUL's fire window (`fire_only_when_visible_ms: 1000`), which leaves room for rocket flight and a second hit.
 
 ### engagement_distance_in_band_share
 Share of the bot's engagement tics whose engagement distance lies inside its sheet's `temperament.preferred_range` (inclusive).
@@ -93,18 +107,18 @@ Count of alive steps where `behavior` differs between `t − 1` and `t`, divided
 
 ZED `> 6`.
 
-### melee_damage_share (proxy)
-Schema 2 records no damage. Defined instead as the share of the bot's credited `frag` events in the displayed match whose key is `OB_MPFIST` or `OB_MPCHAINSAW`. `n/a` with no frags.
+### melee_damage_share
+Share of the damage the bot dealt in the displayed match that it dealt while holding a weapon in engine slot 1 (fist or chainsaw) at `t − 1`. Its own splash is not damage dealt (`damagecount` counts other players only). Barrel blasts it set off count, attributed to the weapon in hand. `n/a` with no damage dealt; schema 3 only.
 
-ASH `== 1.0`. ASH may hold only the fist and chainsaw, so a lower value means frags by other means: barrels and telefrags. Those are frags, not damage, which this proxy cannot separate.
+ASH `== 1.0`. ASH may hold only the fist and chainsaw, so a lower value means damage by other means, such as a barrel.
 
-### chainsaw_damage_share (proxy)
-As `melee_damage_share`, counting only `OB_MPCHAINSAW`.
+### chainsaw_damage_share
+As `melee_damage_share`, counting only damage dealt while engine slot 1 is held and `weapon_name` is `chainsaw`.
 
 ZED `> 0.4`.
 
-### approach_outside_view_cone_share (proxy)
-Schema 2 records no shots, so the "first shot" is replaced by the engagement start. Over the bot's engagements in the displayed match, it is the share where, at the start tic, the bot lies more than 45 degrees off the target's facing: outside a 90-degree view cone centred on the target's `angle`. `n/a` with none.
+### approach_outside_view_cone_share
+Over the bot's engagements in the displayed match, take the first tic `t` of each where the bot lands a hit (`hitcount` rises) and its target takes damage (`damage_taken` rises) in the same tic. The engagement counts as outside if, at `t`, the bot lies more than 45 degrees off the target's facing at `t − 1`: outside a 90-degree view cone centred on the target's `angle`. Share over engagements with such a hit. Two attackers hitting the same target in one tic cannot be told apart. `n/a` with none; schema 3 only.
 
 PYR `> 0.5`.
 

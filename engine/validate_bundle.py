@@ -153,6 +153,30 @@ def check_rows(rows, n_tics, m=None, map_data=None):
         prev_alive[r["slot"]] = r["alive"]
     if version >= 2 and not p:
         p += check_rows_v2(rows, m, map_data)
+    if version >= 3 and not p:
+        p += check_rows_v3(rows)
+    return p
+
+
+def check_rows_v3(rows):
+    """Damage counters (section 5): cumulative over the match, so never falling; and in every tic the
+    damage all players dealt to other players is at most the damage all players took."""
+    p, last = [], {}
+    dealt, taken = {}, {}
+    for r in rows:
+        where = f"tic {r['tic']} slot {r['slot']}"
+        vals = (r["hitcount"], r["damagecount"], r["damage_taken"])
+        if not all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in vals):
+            p.append(f"{where}: damage counters {vals}")
+            continue
+        prev = last.get(r["slot"])
+        if prev is not None:
+            if any(a < b for a, b in zip(vals, prev)):
+                p.append(f"{where}: a damage counter fell from {prev} to {vals}")
+            dealt[r["tic"]] = dealt.get(r["tic"], 0) + vals[1] - prev[1]
+            taken[r["tic"]] = taken.get(r["tic"], 0) + vals[2] - prev[2]
+        last[r["slot"]] = vals
+    p += [f"tic {t}: players dealt {dealt[t]} damage to others but took {taken[t]}" for t in sorted(dealt) if dealt[t] > taken[t]]
     return p
 
 

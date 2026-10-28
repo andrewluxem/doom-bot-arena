@@ -1,10 +1,12 @@
 """Signature metrics per bot, from match bundles (docs/SIGNATURES.md).
 
-    python3 tools/signatures.py bundles/<id> [bundles/<id> ...] [--bots VEX,HEX,NUL] [--json out.json]
+    python3 tools/signatures.py bundles/<id> [bundles/<id> ...] [--bots VEX,HEX,NUL] [--compare] [--json out.json]
 
 Every metric is computed for all eight bots, so ranks are defined. Each bot is then
 checked against the thresholds in its own characters/*.yaml signature block. With
 several bundles, a summary counts the matches in which each bot met its whole signature.
+--compare also prints every reported bot's metrics for all eight bots, to show how far a
+personality stands from the placeholders.
 """
 
 import argparse
@@ -24,7 +26,6 @@ TICRATE = 35
 TELEPORT_STEP = 64.0
 WINDOW = 35
 STATIONARY_RADIUS = 32.0
-FORWARD_MIN = 1.0
 VIEW_CONE_HALF = 45.0
 RETREAT_MIN = 48.0
 ITEM_RESPAWN = 1050
@@ -138,14 +139,39 @@ def median_engagement_distance(B, s, sheet):
     return d[n // 2] if n % 2 else (d[n // 2 - 1] + d[n // 2]) / 2
 
 
-def moving_forward_share(B, s, sheet):
-    n = fwd = 0
+def _median(xs):
+    xs = sorted(xs)
+    n = len(xs)
+    if not n:
+        return None
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+
+def _dist(a, b):
+    return math.hypot(b["x"] - a["x"], b["y"] - a["y"])
+
+
+def median_kill_distance(B, s, sheet):
+    return _median(_dist(B.rows[s][e["tic"]], B.rows[e["target"]][e["tic"]]) for e in B.frags_by(s))
+
+
+def closing_share(B, s, sheet):
+    n = closing = 0
     for t, a, b in B.steps(s):
+        tg = b["target_slot"]
+        if b["behavior"] != "IN_COMBAT" or tg is None or a["target_slot"] != tg:
+            continue
+        o0, o1 = B.rows[tg][t - 1], B.rows[tg][t]
+        if not (o0["alive"] and o1["alive"]):
+            continue
         n += 1
-        ang = math.radians(a["angle"])
-        if (b["x"] - a["x"]) * math.cos(ang) + (b["y"] - a["y"]) * math.sin(ang) > FORWARD_MIN:
-            fwd += 1
-    return fwd / n if n else None
+        closing += _dist(b, o1) < _dist(a, o0)
+    return closing / n if n else None
+
+
+def median_first_sight_engagement_distance(B, s, sheet):
+    return _median(_dist(B.rows[s][start], B.rows[tg][start]) for start, _, tg in B.engagements(s)
+                   if B.rows[tg][start]["alive"])
 
 
 def stationary_share(B, s, sheet):
@@ -171,7 +197,7 @@ def distance_traveled_rank(B, s, sheet):
     return 1 + sum(1 for k in B.slots if d[k] < d[s])
 
 
-def frags_within_1s_of_visibility_share(B, s, sheet):
+def frags_within_visibility_share(B, s, within_tics):
     frags = B.frags_by(s)
     if not frags:
         return None
@@ -184,9 +210,13 @@ def frags_within_1s_of_visibility_share(B, s, sheet):
         r = last
         while r > 0 and rows[r - 1]["target_slot"] == v:
             r -= 1
-        if k - r <= WINDOW:
+        if k - r <= within_tics:
             ok += 1
     return ok / len(frags)
+
+
+def frags_within_1500ms_of_visibility_share(B, s, sheet):
+    return frags_within_visibility_share(B, s, 1.5 * TICRATE)
 
 
 def engagement_distance_in_band_share(B, s, sheet):
@@ -268,35 +298,56 @@ def behavior_switches_per_minute(B, s, sheet):
     return switches / (alive / (TICRATE * 60)) if alive else None
 
 
-def _frag_key_share(B, s, keys):
-    frags = B.frags_by(s)
-    return sum(1 for e in frags if e["key"] in keys) / len(frags) if frags else None
+def _damage_share(B, s, held):
+    """Share of the damage s dealt to other players (schema 3 damagecount) dealt while held(row at t - 1)."""
+    if "damagecount" not in B.rows[s][0]:
+        return None
+    total = part = 0
+    for t in range(B.f0 + 1, B.end):
+        a, b = B.rows[s][t - 1], B.rows[s][t]
+        d = b["damagecount"] - a["damagecount"]
+        if d > 0:
+            total += d
+            part += d if held(a) else 0
+    return part / total if total else None
 
 
 def melee_damage_share(B, s, sheet):
-    return _frag_key_share(B, s, {"OB_MPFIST", "OB_MPCHAINSAW"})
+    return _damage_share(B, s, lambda r: r["weapon"] == 1)
 
 
 def chainsaw_damage_share(B, s, sheet):
-    return _frag_key_share(B, s, {"OB_MPCHAINSAW"})
+    return _damage_share(B, s, lambda r: r["weapon"] == 1 and r["weapon_name"] == "chainsaw")
+
+
+def first_hit(B, s, start, end, tg):
+    """First tic in the engagement where s lands a hit and its target takes damage, or None."""
+    for t in range(max(start, 1), end + 1):
+        a, b = B.rows[s][t - 1], B.rows[s][t]
+        if b["hitcount"] > a["hitcount"] and B.rows[tg][t]["damage_taken"] > B.rows[tg][t - 1]["damage_taken"]:
+            return t
+    return None
 
 
 def approach_outside_view_cone_share(B, s, sheet):
-    eng = B.engagements(s)
-    if not eng:
+    if "hitcount" not in B.rows[s][0]:
         return None
-    out = 0
-    for start, _, tg in eng:
-        a, v = B.rows[s][start], B.rows[tg][start]
+    n = out = 0
+    for start, end, tg in B.engagements(s):
+        t = first_hit(B, s, start, end, tg)
+        if t is None:
+            continue
+        a, v = B.rows[s][t], B.rows[tg][t - 1]
         bearing = math.degrees(math.atan2(a["y"] - v["y"], a["x"] - v["x"]))
-        if abs(wrap180(bearing - v["angle"])) > VIEW_CONE_HALF:
-            out += 1
-    return out / len(eng)
+        n += 1
+        out += abs(wrap180(bearing - v["angle"])) > VIEW_CONE_HALF
+    return out / n if n else None
 
 
 METRICS = {f.__name__: f for f in (
-    median_engagement_distance, moving_forward_share, stationary_share, distance_traveled_rank,
-    frags_within_1s_of_visibility_share, engagement_distance_in_band_share, retreat_on_close_share,
+    median_engagement_distance, median_kill_distance, closing_share, median_first_sight_engagement_distance,
+    stationary_share, distance_traveled_rank, frags_within_1500ms_of_visibility_share,
+    engagement_distance_in_band_share, retreat_on_close_share,
     engagements_started_below_50hp_share, item_timing_hit_rate, armor_pickups_rank,
     behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share)}
 
@@ -340,6 +391,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("bundles", nargs="+")
     ap.add_argument("--bots", help="comma-separated codes to report (default: all eight)")
+    ap.add_argument("--compare", action="store_true", help="print the reported bots' metrics for all eight bots")
     ap.add_argument("--json", help="write the full report here")
     args = ap.parse_args(argv)
     sheets = roster.load()
@@ -364,10 +416,33 @@ def main(argv=None):
                     per.setdefault(x["metric"], []).append(x["value"])
             vals = "; ".join(f"{m} [{', '.join(fmt(v) for v in vs)}]" for m, vs in per.items())
             print(f"  {code} {met}/{len(reports)}  {vals}")
+    if args.compare:
+        compare(args.bundles, sheets, codes)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(reports, f, indent=1)
     return 0
+
+
+def compare(paths, sheets, codes):
+    """Each reported bot's signature metrics, computed for every bot (personality and placeholder)."""
+    by_code = {sh["code"]: sh for sh in sheets}
+    metrics = []
+    for code in codes:
+        for item in by_code[code].get("signature") or []:
+            if item["metric"] not in metrics:
+                metrics.append(item["metric"])
+    bundles = [Bundle(p) for p in paths]
+    print("== every bot on these metrics (one value per bundle)")
+    for metric in metrics:
+        users = [c for c in codes if any(i["metric"] == metric for i in by_code[c].get("signature") or [])]
+        print(f"  {metric}  (signature of {', '.join(users)})")
+        for sh in sheets:
+            vals = []
+            for B in bundles:
+                s = next(k for k in B.slots if B.code[k] == sh["code"])
+                vals.append(METRICS[metric](B, s, sh))
+            print(f"      {sh['code']}{'*' if sh['code'] in users else ' '} {', '.join(fmt(v) for v in vals)}")
 
 
 if __name__ == "__main__":

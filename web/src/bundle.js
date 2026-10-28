@@ -1,4 +1,4 @@
-/* Loads a schema 1 or 2 match bundle (docs/MATCH_FORMAT.md) into per-slot typed arrays.
+/* Loads a schema 1, 2 or 3 match bundle (docs/MATCH_FORMAT.md) into per-slot typed arrays.
    The viewer shows only what the bundle records: no positions, targets or sectors are guessed.
    Schema 2 rows add weapon_name, target_slot and sector, and spots.json lists the spots bots chose. */
 
@@ -62,7 +62,7 @@ export async function loadBundle(base) {
   const [match, map, ticsText, eventsText] = await Promise.all([
     get(url('match.json'), 'json'), get(url('map.json'), 'json'), get(url('tics.jsonl')), get(url('events.jsonl')),
   ]);
-  if (![1, 2].includes(match.schema_version)) throw new Error(`schema_version ${match.schema_version} is not supported`);
+  if (![1, 2, 3].includes(match.schema_version)) throw new Error(`schema_version ${match.schema_version} is not supported`);
   const spots = match.schema_version >= 2 ? await get(url('spots.json'), 'json') : null;
   const f0 = match.frame0_tic, n = match.duration_tics, total = f0 + n, rate = match.ticrate;
   const respawnAfter = rate * match.respawn_delay_s + 1; // a death at tic d respawns at d + 35·delay + 1

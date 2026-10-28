@@ -44,6 +44,6 @@ signature:
   - metric: stationary_share
     op: ">"
     value: 0.7
-  - metric: median_engagement_distance
+  - metric: median_first_sight_engagement_distance
     op: ">"
     value: 500

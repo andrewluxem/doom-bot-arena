@@ -35,9 +35,9 @@ items:
 spots: null
 
 signature:
-  - metric: median_engagement_distance
+  - metric: median_kill_distance
     op: "<"
-    value: 320
-  - metric: moving_forward_share
+    value: 160
+  - metric: closing_share   # share of IN_COMBAT tics where the distance to target_slot fell
     op: ">"
     value: 0.6
