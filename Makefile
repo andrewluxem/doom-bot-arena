@@ -53,16 +53,19 @@ eval:
 	$(PYTHON) tools/signatures.py --bots $(BOTS) --json $(EVAL_OUT)/signatures.json $(EVAL_OUT)/2*
 
 # Separation baseline: every slot a placeholder, five-minute matches per map; then frags per minute per map.
+# A capture that fails its checks is run once more (the host player-name fault, docs/MATCH_FORMAT.md section 9).
 baseline:
 	for m in $(BASE_MAPS); do for s in $(BASE_SEEDS); do \
-		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities none --out $(BASE_OUT)/$$m || exit 1; \
+		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities none --out $(BASE_OUT)/$$m \
+		|| $(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities none --out $(BASE_OUT)/$$m || exit 1; \
 	done; done
 	$(PYTHON) tools/frag_rate.py --json $(BASE_OUT)/frag_rate.json $(BASE_OUT)/*/2*
 
 # All eight personalities; signatures against the baseline for each map (docs/SIGNATURES.md, separation).
 eval-2b:
 	for m in $(EVAL2B_MAPS); do for s in $(EVAL2B_SEEDS); do \
-		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all --out $(EVAL2B_OUT)/$$m || exit 1; \
+		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all --out $(EVAL2B_OUT)/$$m \
+		|| $(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all --out $(EVAL2B_OUT)/$$m || exit 1; \
 	done; done
 	$(MAKE) signatures-2b
 

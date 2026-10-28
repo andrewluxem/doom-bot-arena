@@ -18,8 +18,8 @@ Milestone 2B mechanics, each driven by a sheet field (characters/README.md):
   melee, berserk   melee weapons fire only within reach; items.weights.berserk lures the bot to a
                    berserk pack, which makes the fist its best weapon until it dies
 
-Any bot spawned into a pocket it cannot leave (its reachable nav area under TRAPPED_NODES; on E1M5
-the exit room) uses the pocket's exit switch when no enemy is in view. Under sv_noexit that kills it
+Any bot spawned into a pocket it cannot leave (a nav region other than the largest, from which fewer
+than TRAPPED_NODES nodes are reachable with every door open; on E1M5 the exit room) uses the pocket's exit switch when no enemy is in view. Under sv_noexit that kills it
 (OB_EXIT, a self-kill) and it respawns elsewhere, as a player would. Otherwise it never uses an exit.
 A pocket with no exit switch (MAP10's, left in play only by an S1 floor switch the nav graph does
 not model) gets the console suicide instead (`kill`, OB_SUICIDE), once per life.
@@ -216,6 +216,7 @@ class PersonalityBot:
                 nx, ny = (l["y2"] - l["y1"]) / ln, -(l["x2"] - l["x1"]) / ln  # toward the front (right) side
                 self.exits.append((l["id"], (mx + 40 * nx, my + 40 * ny), (mx, my)))
         self.spawned_at, self.suicide_sent = 0, False
+        self.region_reach = {}  # nav region id -> nodes reachable from it, every door open
         self.attractors = ([(s["x"], s["y"], node(s["x"], s["y"])) for s in map_data["deathmatch_starts"]]
                            + [(w[1], w[2], w[3]) for w in self.weapon_things])
         for c in self.spot_cands:
@@ -663,21 +664,39 @@ class PersonalityBot:
                 best = (reach[it["node"]], (it["x"], it["y"]))
         return (best[1], "item:lure") if best else (None, None)
 
+    def _trapped(self, x, y):
+        """In a pocket: a nav region other than the largest, with fewer than TRAPPED_NODES nodes reachable
+        from it on the static graph with every door open (a closed remote door is not a trap)."""
+        n = self.graph.nearest(x, y)
+        rid = self.graph.region_id[n] if n is not None else 0
+        if rid == 0:
+            return False
+        if rid not in self.region_reach:
+            seen, stack = {n}, [n]
+            while stack:
+                u = stack.pop()
+                for v, _, kind, _ in self.graph.edges[u]:
+                    if kind in nav.USABLE_KINDS and v not in seen:
+                        seen.add(v)
+                        stack.append(v)
+            self.region_reach[rid] = len(seen)
+        return self.region_reach[rid] < TRAPPED_NODES
+
     def _suicide_now(self, t, x, y):
         """Trapped in a pocket without a reachable exit switch, nobody in view: respawn by the console suicide."""
         if (self.suicide_sent or self.perc.visible() or t - self.spawned_at <= TRAPPED_WAIT
                 or (self.goal_tag or "").startswith("exit:")):
             return False
-        if len(self._reach(t, x, y)) >= TRAPPED_NODES or self._exit_goal(t, x, y)[0] is not None:
+        if not self._trapped(x, y) or self._exit_goal(t, x, y)[0] is not None:
             return False
         self.suicide_sent = True
         return True
 
     def _exit_goal(self, t, x, y):
         """In a pocket the bot cannot leave: the approach point of an exit switch it can reach."""
-        reach = self._reach(t, x, y)
-        if len(reach) >= TRAPPED_NODES:
+        if not self._trapped(x, y):
             return None, None
+        reach = self._reach(t, x, y)
         for line_id, (ax, ay), _ in self.exits:
             n = self.graph.nearest(ax, ay, max_dist=64)
             if n is not None and n in reach:
