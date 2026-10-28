@@ -50,8 +50,9 @@ def table():
     return a
 
 
-def run(tics, labels_for_asker, positions):
-    """Slot 1 asks; slots 2 and 5 answer. positions: slot -> function(t) -> (x, y)."""
+def run(tics, labels_for_asker, positions, asker_skips=()):
+    """Slot 1 asks; slots 2 and 5 answer. positions: slot -> function(t) -> (x, y) or None (dead).
+    asker_skips: tics on which slot 1's controller does not query (its player is dead)."""
     a = table()
     lock = contextlib.nullcontext()
     writers = {s: peers.IdentityWriter(a, lock, s) for s in (1, 2, 5)}
@@ -60,10 +61,10 @@ def run(tics, labels_for_asker, positions):
     for t in range(tics):
         for s, w in writers.items():
             a.reader = f"writer{s}"
-            x, y = positions[s](t)
-            w.answer(t, x, y, True)
+            pos = positions[s](t)
+            w.answer(t, *(pos or (0.0, 0.0)), pos is not None)
         a.reader = "reader1"
-        results.append(reader.identify(t, labels_for_asker(t)))
+        results.append(None if t in asker_skips else reader.identify(t, labels_for_asker(t)))
         a.reader = None
     return a, results
 
@@ -161,3 +162,15 @@ def test_a_label_back_in_view_waits_for_a_fresh_name():
     assert results[29] == {77: 2}
     assert results[40] == {77: None} and results[41] == {77: None}, (results[40], results[41])
     assert results[42] == {77: 5}
+
+
+def test_answers_to_requests_left_open_while_dead_never_leak():
+    """The asker dies with a request open; it keeps being answered. After respawn, a new label in
+    the same request row must not receive that stale answer (an evaluation match named a dead player)."""
+    # slot 2 stands where slot 1 last saw a label, then dies at tic 20; slot 1 is dead tics 10-29
+    positions = {1: lambda t: (0.0, 0.0), 2: lambda t: (300.0, 40.0) if t < 20 else None,
+                 5: lambda t: (900.0, 900.0)}
+    labels = lambda t: [(77, 300.0, 40.0)] if t < 10 else [(88, 500.0, 500.0)]  # nobody is at 500, 500
+    _, results = run(40, labels, positions, asker_skips=set(range(10, 30)))
+    assert results[8] == {77: 2}
+    assert all(r == {88: None} for r in results[30:]), results[30:]

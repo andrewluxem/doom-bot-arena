@@ -108,6 +108,7 @@ class IdentityReader:
         self.known = {}  # label object id -> slot
         self.checked = {}  # label object id -> tic its name was last asked
         self.seen = {}  # label object id -> (tic, x, y) it was last in this process's labels
+        self.last_call = None
         self.posted = {}  # tic -> [object id per request index]
 
     def identify(self, t, labels):
@@ -116,6 +117,12 @@ class IdentityReader:
         `labels` is [(object_id, x, y)]. Only these labels are posted or looked up.
         """
         p = t % 2
+        if self.last_call is None or t - self.last_call > 1:
+            # The controller skipped tics (its player was dead). Requests it left open have been
+            # answered meanwhile; none of those answers may reach a new request in the same row.
+            self.posted.clear()
+            self._clear(1 - p)
+        self.last_call = t
         asked = self.posted.pop(t - 2, [])
         for i, oid in enumerate(asked):
             ab = _ans(p, self.slot, i)
@@ -123,9 +130,7 @@ class IdentityReader:
                 self.known[oid] = int(self.a[ab])
             else:
                 self.known.pop(oid, None)  # nobody claims it (any more)
-            self.a[ab], self.a[ab + 1] = 0.0, NO_ANSWER
-        for i in range(MAX_LABELS):
-            self.a[_req(p, self.slot, i) + 2] = 0.0
+        self._clear(p)
         out, post = {}, []
         for oid, x, y in labels:
             last = self.seen.get(oid)
@@ -141,6 +146,13 @@ class IdentityReader:
                 post.append(oid)
         self.posted[t] = post
         return out
+
+    def _clear(self, parity):
+        """Withdraw every request and answer of this process in one parity."""
+        for i in range(MAX_LABELS):
+            self.a[_req(parity, self.slot, i) + 2] = 0.0
+            ab = _ans(parity, self.slot, i)
+            self.a[ab], self.a[ab + 1] = 0.0, NO_ANSWER
 
     def forget(self, oids):
         """Drop cached names for actors this process no longer sees (dead and gone)."""
