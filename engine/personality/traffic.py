@@ -1,7 +1,10 @@
 """Observed traffic per map: where players actually were, from match bundles of that map.
 
-Every alive row of every slot in the displayed match counts once in the 64-unit cell holding its
-x, y (cells are aligned to the map origin). Only bundles of the same map and IWAD count. Spot
+Every alive, moving row of every slot in the displayed match counts once in the 64-unit cell holding
+its x, y (cells are aligned to the map origin). Moving: more than STILL_RADIUS from where the bot was
+STILL_TICS earlier in the same life, as in stationary_share (docs/SIGNATURES.md); the first STILL_TICS
+of a life count. Without that, a camper's own hold in an evaluation bundle (NUL and HEX sit for most of
+a match) would be the busiest cell on the map and draw it back to the same spot. Only bundles of the same map and IWAD count. Spot
 scoring (spots.py) reads a spot's traffic as the sum over its cell and the eight cells around it.
 
 Source (milestone 2D): evaluation bundles, where every slot is a personality, when any of the map
@@ -14,7 +17,9 @@ import math
 import os
 from collections import Counter
 
-VERSION = 2  # 2: evaluation bundles first, placeholder bundles as fallback
+VERSION = 3  # 2: evaluation bundles first, placeholder bundles as fallback; 3: moving rows only
+STILL_TICS = 35
+STILL_RADIUS = 32.0
 PLACEHOLDER = "engine.bots:PlaceholderBot"
 CELL = 64
 
@@ -50,10 +55,20 @@ def build(roots, map_data):
     counts, used, samples = Counter(), [], 0
     for path, m in found[kind]:
         f0, end = m["frame0_tic"], m["frame0_tic"] + m["duration_tics"]
+        trail = {}  # slot -> positions of the current life, by tic
         with open(os.path.join(path, "tics.jsonl")) as f:
             for line in f:
                 r = json.loads(line)
-                if r["alive"] and f0 <= r["tic"] < end:
+                life = trail.setdefault(r["slot"], {})
+                if not r["alive"]:
+                    life.clear()
+                    continue
+                life[r["tic"]] = (r["x"], r["y"])
+                life.pop(r["tic"] - STILL_TICS - 1, None)
+                back = life.get(r["tic"] - STILL_TICS)
+                if back is not None and math.hypot(r["x"] - back[0], r["y"] - back[1]) <= STILL_RADIUS:
+                    continue
+                if f0 <= r["tic"] < end:
                     counts[cell(r["x"], r["y"])] += 1
                     samples += 1
         used.append(m["id"])

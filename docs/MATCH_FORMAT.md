@@ -317,7 +317,7 @@ Spot candidates for the stationary styles and the spots bots chose (`engine/pers
     - Own traffic is the number of routes through the spot's node, over the busiest node's.
     - Exposure is mean ray length clipped at 1024.
     - Version 1 instead counted shortest paths between every pair of starts, weapons and items, seen inside the bot's `preferred_range`.
-- **Observed traffic** (`spots_version` 5, milestone 2C). With bundles of the same map and IWAD given to the runner (`--traffic`), each mode is scored by the traffic players were seen in instead: every alive row of every slot in those bundles' displayed matches counts once in its 64-unit cell (cells aligned to the map origin), and a spot's traffic T is the sum over its cell and the eight around it, over the busiest candidate's.
+- **Observed traffic** (`spots_version` 5, milestone 2C). With bundles of the same map and IWAD given to the runner (`--traffic`), each mode is scored by the traffic players were seen in instead: every alive row of every slot in those bundles' displayed matches counts once in its 64-unit cell (cells aligned to the map origin), unless the bot is standing still: within 32 units of where it was 35 tics earlier in the same life (milestone 2D, `traffic_version` 3; a camper's own hold would otherwise be the busiest cell), and a spot's traffic T is the sum over its cell and the eight around it, over the busiest candidate's.
   - `sightlines_max`: mean clipped ray length × T.
   - `sightlines_min_near_traffic`: `(1 − exposure)² × T`.
   - `watch_angle` faces the 13-ray window with the most traffic in sight: each ray sums the cells it crosses, sampled every 32 units, out to its sight length clipped at the far end of the preferred range.

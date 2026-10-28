@@ -122,3 +122,12 @@ def test_traffic_prefers_evaluation_bundles_over_placeholder_ones(tmp_path):
     assert both["source"] == "eval" and both["bundles"] == ["e1"]
     only = traffic.build([str(tmp_path / "base")], md)
     assert only["source"] == "placeholder" and only["bundles"] == ["p1"]
+
+
+
+def test_traffic_leaves_out_standing_still(tmp_path):
+    still = [{"x": 10.0, "y": 10.0, "alive": True}] * 100  # stands for 100 tics: only the first 35 count
+    walk = [{"x": 10.0 + 4 * t, "y": 10.0, "alive": True} for t in range(100)]
+    write_bundle(tmp_path / "b" / "one", {1: still, 2: walk})
+    tr = traffic.build([str(tmp_path / "b")], {"source": {"map": "MAP10", "iwad_sha256": "abc"}})
+    assert tr["samples"] == 35 + 100
