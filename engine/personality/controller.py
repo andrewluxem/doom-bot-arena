@@ -8,7 +8,10 @@ resampled each decision, and max_turn_deg_per_tic on every turn and pitch change
 
 Milestone 2B mechanics, each driven by a sheet field (characters/README.md):
   item timing      items.item_timing: respawn timers from own pickups and from item labels seen
-                   to vanish or reappear; item goals and roaming aim to arrive as an item respawns
+                   to vanish or reappear; item goals and roaming aim to arrive as an item respawns.
+                   Since milestone 2D a timed item the bot can pick up now, due back by the time it can
+                   get there, is its goal in every behavior but IN_COMBAT and FLEEING: before standing
+                   items of either class, before hunting and roaming
   retreat band     temperament.retreat_distance: inside it, while engaging a target, back away from it
                    on a clear heading while still aiming, whatever the behavior (a hard rule, milestone
                    2C); shown as KITING while the target is in view and in weapon range
@@ -53,6 +56,8 @@ JITTER_DEG = 10.0  # aim error standard deviation at aim_accuracy 0
 EYE = 41.0
 CHEST = 32.0
 ITEM_RESPAWN = itemfacts.RESPAWN_TICS
+PICKUP_CAP = {"Stimpack": ("health", 100), "Medikit": ("health", 100), "Soulsphere": ("health", 200),
+              "GreenArmor": ("armor", 100), "BlueArmor": ("armor", 200)}  # Doom picks these up only under the cap
 ITEM_VALUE = {"Stimpack": 10, "Medikit": 25, "HealthBonus": 1, "Soulsphere": 100, "Megasphere": 200,
               "GreenArmor": 100, "BlueArmor": 200, "ArmorBonus": 1}
 AMMO_ITEMS = {"pistol": ("Clip", "ClipBox"), "chaingun": ("Clip", "ClipBox"), "shotgun": ("Shell", "ShellBox"),
@@ -73,6 +78,7 @@ ITEM_VIEW = 1536  # how far an item-timing bot checks item places it can see
 ITEM_FOV = 42.0  # half-angle, inside the 45-degree half view so an item at the edge is not misread
 ITEM_LABEL_MATCH = 24
 TIMED_WAIT_MAX = 10 * TICRATE  # an item-timing bot will wait up to this long at an item
+TIMED_SWITCH = 1.5  # ...and leaves a timed item for another only if that one is worth this much more
 WAIT_RADIUS = 40
 WAIT_GRACE = 2 * TICRATE  # ZDoom brings an item back a tic or two after RESPAWN_TICS; wait past the window
 LURE_CLASSES = ("berserk",)  # one-off pickups a bot goes out of its way for when its sheet weights them
@@ -454,7 +460,9 @@ class PersonalityBot:
                 "goal": None if self.goal is None else [round(self.goal[0]), round(self.goal[1]), self.goal_tag],
                 "path": None if not self.path else [len(self.path), self.path_i],
                 "spot": None if self.spot is None else [self.spot["id"], self.at_spot], "stuck": self.stuck_count,
-                "rockets_held": self.rockets_held})
+                "rockets_held": self.rockets_held,
+                "timed": [[n, it["back"], it["back_hi"], it["seen"]] for n, it in enumerate(self.items)
+                          if self.d.item_timing and it["name"] in itemfacts.TIMED]})
 
         self.jit_yaw = self.rng.gauss(0.0, d.jitter_deg)
         self.jit_pitch = self.rng.gauss(0.0, d.jitter_deg * 0.5)
@@ -555,6 +563,8 @@ class PersonalityBot:
             goal, tag = (self.goal, "weapon") if self._weapon_goal_held(t) else self._weapon_goal(t, x, y)
         if goal is None and b not in ("IN_COMBAT", "FLEEING") and usable and self._ammo_low(v, usable):
             goal, tag = self._item_goal(t, x, y, names=set(sum((AMMO_ITEMS.get(w, ()) for w in usable), ())) | {"Backpack"})
+        if goal is None and self.d.item_timing and b not in ("IN_COMBAT", "FLEEING"):
+            goal, tag = self._timed_goal(t, x, y, v)
         if goal is None and b in ("ROAMING", "HUNTING") and (b == "ROAMING" or latest is None
                                                              or t - latest.last_seen > RECENT_CONTACT):
             goal, tag = self._lure_goal(t, x, y)
@@ -611,9 +621,9 @@ class PersonalityBot:
         return penalty
 
     def _idle_goal(self, t, x, y, tag):
-        """With no enemy to look for: fetch a better allowed weapon than any held; then an item-timing bot runs
-        its item circuit; any other bot (or a timer with nothing due) keeps its current wander goal until
-        GOAL_TIMEOUT, then draws a new one."""
+        """With no enemy to look for: fetch a better allowed weapon than any held; otherwise keep the current
+        wander goal until GOAL_TIMEOUT, then draw a new one. (An item-timing bot's circuit is _timed_goal, which
+        _choose_goal tries first.)"""
         held_best = max((self.d.weapon_weights.get(w, 0) for w in self.armory.owned if w in self.resolved), default=0.0)
         if held_best < self.best_weight:
             if self._weapon_goal_held(t):
@@ -621,15 +631,6 @@ class PersonalityBot:
             goal, upgrade = self._weapon_goal(t, x, y, better_than=held_best)  # a better weapon first
             if goal is not None:
                 return goal, upgrade
-        if self.d.item_timing:
-            held = self._item_at(self.goal) if self.goal_tag == "item:timed" else None
-            if held is not None and pending(held, t) and t - self.goal_set_at < GOAL_TIMEOUT + TIMED_WAIT_MAX:
-                return self.goal, "item:timed"  # keep the item being timed until it is back
-            if t - self.timed_looked >= TICRATE:
-                goal, timed = self._timed_item_goal(t, x, y)
-                if goal is not None:
-                    return goal, timed
-                self.timed_looked = t
         if self.goal_tag == tag and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
             return self.goal, tag
         return self._random_attractor(t, x, y), tag
@@ -674,23 +675,53 @@ class PersonalityBot:
                 best = (u, (it["x"], it["y"]))
         return (best[1], f"item:{cls or 'ammo'}") if best else (None, None)
 
-    def _timed_item_goal(self, t, x, y):
-        """Roaming, an item-timing bot heads for the timed item it can reach closest to its respawn,
-        weighted by its sheet's item weights; items already standing do not draw it."""
+    def _timed_goal(self, t, x, y, v):
+        """An item-timing bot's circuit. Waiting on a timed item's spot, it stays until the item is back (or the
+        goal times out, or it could no longer pick it up). Otherwise, at most once a second, it ranks the timed
+        items again and switches to a better one (TIMED_SWITCH times the held one's utility): a Stimpack chosen
+        earlier must not keep it from a GreenArmor that has since come within reach of its respawn."""
+        held = self._item_at(self.goal) if self.goal_tag == "item:timed" else None
+        keep = (held is not None and pending(held, t) and self._can_take(held, v)
+                and t - self.goal_set_at < GOAL_TIMEOUT + TIMED_WAIT_MAX)
+        if keep and (math.hypot(held["x"] - x, held["y"] - y) < WAIT_RADIUS or t - self.timed_looked < TICRATE):
+            return self.goal, "item:timed"
+        if keep or t - self.timed_looked >= TICRATE:
+            self.timed_looked = t
+            ranked = self._timed_items(t, x, y, v)
+            if ranked:
+                u, best = ranked[0]
+                if keep and best is not held:
+                    mine = next((u2 for u2, it in ranked if it is held), 0.0)
+                    if u < TIMED_SWITCH * mine:
+                        return self.goal, "item:timed"
+                return (best["x"], best["y"]), "item:timed"
+        return (self.goal, "item:timed") if keep else (None, None)
+
+    @staticmethod
+    def _can_take(it, v):
+        """Would Doom let the bot pick this up now: health or armor under the item's cap (a Megasphere always)."""
+        cap = PICKUP_CAP.get(it["name"])
+        if cap is None:
+            return True
+        return v["HEALTH" if cap[0] == "health" else "ARMOR"] < cap[1]
+
+    def _timed_items(self, t, x, y, v):
+        """[(utility, item)], best first: timed items it can pick up and reach by their respawn (waiting at most
+        TIMED_WAIT_MAX), weighted by its sheet's item weights; items already standing do not draw it."""
         reach = self._reach(t, x, y)
-        best = None
+        out = []
         for it in self.items:
-            if it["name"] not in itemfacts.TIMED or it["node"] not in reach or it["back_hi"] <= t:
+            if (it["name"] not in itemfacts.TIMED or it["node"] not in reach or it["back_hi"] <= t
+                    or not self._can_take(it, v)):
                 continue
             eta = reach[it["node"]] / RUN_SPEED
             wait = self._wait(t, it, eta)
             weight = self.d.item_weights.get(it["class"], 0.0)
             if wait is None or weight <= 0:
                 continue
-            u = weight * ITEM_VALUE.get(it["name"], 10) / (reach[it["node"]] + 200.0 + RUN_SPEED * wait)
-            if best is None or u > best[0]:
-                best = (u, (it["x"], it["y"]))
-        return (best[1], "item:timed") if best else (None, None)
+            out.append((weight * ITEM_VALUE.get(it["name"], 10) / (reach[it["node"]] + 200.0 + RUN_SPEED * wait), it))
+        out.sort(key=lambda p: -p[0])
+        return out
 
     def _item_at(self, goal):
         if goal is None:
