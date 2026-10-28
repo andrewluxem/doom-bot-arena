@@ -49,6 +49,30 @@ All eight bots are personalities in milestone 2B, so the placeholders come from 
 - **Rank metrics cannot gate against an all-placeholder baseline.** In every match at least two of the eight bots hold rank 1 or 2 (ties share the better rank), so at least 25% of baseline bot-matches pass a `<= 2`. At most 75% fail, under the 80% the rule needs. This affects `distance_traveled_rank` (NUL's 2A gate) and `armor_pickups_rank` (PYR).
 - `tools/signatures.py --baseline <bundles> <bundles>` applies this per map. It prints every metric for all eight bots against the baseline, and the pairs of bots that share a top behavior.
 
+Applied to the 2B evaluation: five matches per map at seeds 301–305, against the baseline at seeds 201–205 (E1M5 seed 206 in place of 202). Sheets carry the resulting `gate` flags.
+
+| bot | metric | E1M5: baseline pass | MAP10: baseline pass | role | met (E1M5 + MAP10) |
+|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 140` | 0/38 | 1/29 | gate | 3 + 4 = 7/10 |
+| VEX | `closing_share > 0.6` | 37/39 | 30/37 | descriptive | 5 + 3 |
+| KRN | `item_timing_hit_rate > 0.5` | 0/9 | 1/9 | gate | 0 + 1 = 1/10 (n/a in all five E1M5 matches) |
+| KRN | `engagements_started_below_50hp_share < 0.1` | 12/39 | 23/37 | descriptive | 0 + 3 |
+| NUL | `frags_within_1500ms_of_visibility_share >= 0.5` | 29/38 | 21/29 | descriptive | 3 + 1 |
+| NUL | `distance_traveled_rank <= 2` | 10/40 | 10/40 | descriptive (rank) | 5 + 4 |
+| NUL | `kills_from_hold_share >= 0.5` | 0/38 | 0/29 | gate | 3 + 0 = 3/10 |
+| ASH | `melee_damage_share == 1.0` | 0/39 | 0/35 | gate | 5 + 5 = 10/10 |
+| ASH | `median_engagement_distance < 96` | 0/39 | 0/36 | gate | 0 + 0 = 0/10 |
+| ORB | `engagement_distance_in_band_share > 0.6` | 0/39 | 5/37 | gate | 0 + 0 = 0/10 |
+| ORB | `retreat_on_close_share > 0.7` | 0/39 | 0/31 | gate | 0 + 0 = 0/10 |
+| HEX | `stationary_share > 0.7` | 0/40 | 0/40 | gate | 0 + 4 = 4/10 |
+| HEX | `median_first_sight_engagement_distance > 500` | 36/39 | 29/37 | descriptive | 5 + 3 |
+| PYR | `approach_outside_view_cone_share > 0.5` | 34/39 | 18/32 | descriptive | 1 + 1 |
+| PYR | `armor_pickups_rank <= 2` | 11/40 | 10/40 | descriptive (rank) | 4 + 1 |
+| ZED | `behavior_switches_per_minute > 6` | 25/40 | 5/40 | descriptive (MAP10 only) | 5 + 5 |
+| ZED | `chainsaw_damage_share > 0.4` | 0/39 | 0/35 | gate | 0 + 0 = 0/10 |
+
+Only ASH meets a gating metric in 8 of 10 matches, and that metric holds by construction: ASH may hold only the fist and chainsaw, and no placeholder ever melees. PYR has no metric that separates on either map. `approach_outside_view_cone_share` is lower for every personality (0.23 to 0.50 by map median) than for placeholders (0.59 to 0.69): placeholders' targets wander and rarely face them, so a placeholder baseline does not suit a metric measured against the target's facing.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.

@@ -45,6 +45,8 @@ signature:
   - metric: engagement_distance_in_band_share   # share of combat tics inside preferred_range
     op: ">"
     value: 0.6
+    gate: true
   - metric: retreat_on_close_share   # share of close approaches answered by backing off
     op: ">"
     value: 0.7
+    gate: true

@@ -45,6 +45,8 @@ signature:
   - metric: item_timing_hit_rate   # arrives within 2s of a timed item respawning
     op: ">"
     value: 0.5
+    gate: true
   - metric: engagements_started_below_50hp_share
     op: "<"
     value: 0.1
+    gate: false   # 2B baseline: 31% (E1M5) and 62% (MAP10) of placeholders pass

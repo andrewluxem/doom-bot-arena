@@ -45,6 +45,8 @@ signature:
   - metric: approach_outside_view_cone_share   # first shot fired from behind or beside the target
     op: ">"
     value: 0.5
+    gate: false   # 2B baseline: 87% (E1M5) and 56% (MAP10) of placeholders pass
   - metric: armor_pickups_rank   # 1 = most of the 8
     op: "<="
     value: 2
+    gate: false   # a rank cannot separate from an all-placeholder baseline

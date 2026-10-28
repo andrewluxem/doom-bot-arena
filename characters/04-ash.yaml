@@ -45,6 +45,8 @@ signature:
   - metric: melee_damage_share
     op: "=="
     value: 1.0
+    gate: true
   - metric: median_engagement_distance
     op: "<"
     value: 96
+    gate: true

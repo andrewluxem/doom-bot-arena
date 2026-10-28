@@ -52,6 +52,8 @@ signature:
   - metric: behavior_switches_per_minute
     op: ">"
     value: 6
+    gate: false   # separates on MAP10 only (E1M5 baseline: 62% pass)
   - metric: chainsaw_damage_share
     op: ">"
     value: 0.4
+    gate: true
