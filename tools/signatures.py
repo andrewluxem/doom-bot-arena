@@ -76,6 +76,13 @@ class Bundle:
         self.events = read_jsonl(os.path.join(path, "events.jsonl"))
         self._map = None
         self.life = {s: self._lives(s) for s in self.slots}
+        self.memo = {}  # (method, slot) -> result: every method below is pure for a bundle
+
+    def _cached(self, name, s, fn):
+        key = (name, s)
+        if key not in self.memo:
+            self.memo[key] = fn()
+        return self.memo[key]
 
     @property
     def map(self):
@@ -99,6 +106,9 @@ class Bundle:
 
     def steps(self, s):
         """(t, r_prev, r) for consecutive tics in one life inside the displayed match, teleports dropped."""
+        return self._cached("steps", s, lambda: list(self._steps(s)))
+
+    def _steps(self, s):
         rows, life = self.rows[s], self.life[s]
         for t in range(self.f0 + 1, self.end):
             if life[t] is None or life[t] != life[t - 1]:
@@ -108,6 +118,9 @@ class Bundle:
                 yield t, a, b
 
     def engagement_tics(self, s):
+        return self._cached("engagement_tics", s, lambda: self._engagement_tics(s))
+
+    def _engagement_tics(self, s):
         out = []
         for t in self.displayed():
             r = self.rows[s][t]
@@ -119,6 +132,9 @@ class Bundle:
 
     def engagements(self, s):
         """[(start, end, target)] runs of one non-null target_slot, started in the displayed match."""
+        return self._cached("engagements", s, lambda: self._engagements(s))
+
+    def _engagements(self, s):
         runs, cur = [], None
         for t in range(self.end):
             tg = self.rows[s][t]["target_slot"]
@@ -138,6 +154,9 @@ class Bundle:
 
     def pickups(self, s):
         """[(tic, kind)] health and armor rises inside one life."""
+        return self._cached("pickups", s, lambda: self._pickups(s))
+
+    def _pickups(self, s):
         out = []
         for t, a, b in self.steps(s):
             if b["armor"] > a["armor"]:
@@ -206,7 +225,7 @@ def stationary_share(B, s, sheet):
 
 
 def distance_traveled(B, s):
-    return sum(math.hypot(b["x"] - a["x"], b["y"] - a["y"]) for _, a, b in B.steps(s))
+    return B._cached("distance", s, lambda: sum(math.hypot(b["x"] - a["x"], b["y"] - a["y"]) for _, a, b in B.steps(s)))
 
 
 def distance_traveled_rank(B, s, sheet):
@@ -382,6 +401,21 @@ METRICS = {f.__name__: f for f in (
     behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share)}
 
 
+SHEET_PARAMS = {"engagement_distance_in_band_share": lambda sh: tuple(sh["temperament"]["preferred_range"]),
+                "retreat_on_close_share": lambda sh: sh["temperament"].get("retreat_distance")}
+
+
+def value(B, s, metric, sheet):
+    """METRICS[metric](B, s, sheet), memoized per bundle; only two metrics read the sheet."""
+    memo = getattr(B, "memo", None)
+    if memo is None:
+        return METRICS[metric](B, s, sheet)
+    key = ("metric", s, metric, SHEET_PARAMS[metric](sheet) if metric in SHEET_PARAMS else None)
+    if key not in memo:
+        memo[key] = METRICS[metric](B, s, sheet)
+    return memo[key]
+
+
 def behavior_shares(B, s):
     c = Counter(B.rows[s][t]["behavior"] for t in B.displayed() if B.life[s][t] is not None)
     n = sum(c.values())
@@ -401,7 +435,7 @@ def evaluate(B, sheets):
         sheet = by_code[code]
         sig = []
         for item in sheet.get("signature") or []:
-            v = METRICS[item["metric"]](B, s, sheet)
+            v = value(B, s, item["metric"], sheet)
             sig.append({"metric": item["metric"], "value": None if v is None else round(v, 4), "op": item["op"],
                         "threshold": item["value"], "gate": item.get("gate", True), "pass": passes(item, v)})
         gates = [x for x in sig if x["gate"]]
@@ -429,9 +463,9 @@ def separation(bundles, sheets, codes):
                     # metrics with sheet parameters (preferred_range, retreat_distance) use the personality's
                     sheet = by_code[code]
                     if B.code[s] == code:
-                        own.append(METRICS[item["metric"]](B, s, sheet))
+                        own.append(value(B, s, item["metric"], sheet))
                     elif B.controller[s] == PLACEHOLDER:
-                        others.setdefault(B.code[s], []).append(METRICS[item["metric"]](B, s, sheet))
+                        others.setdefault(B.code[s], []).append(value(B, s, item["metric"], sheet))
             computed = [v for vs in others.values() for v in vs if v is not None]
             p_pass = sum(passes(item, v) for v in computed)
             own_pass = sum(passes(item, v) for v in own)
@@ -467,7 +501,7 @@ def baseline_values(baseline, metric, sheet):
         for s in B.slots:
             if B.controller[s] != PLACEHOLDER:
                 raise SystemExit(f"{B.path}: slot {s} is not a placeholder; a baseline must be all placeholders")
-            vals.append(METRICS[metric](B, s, sheet))
+            vals.append(value(B, s, metric, sheet))
     return vals
 
 
@@ -487,7 +521,7 @@ def separation_vs_baseline(bundles, baselines, sheets, codes):
                 base = baselines.get(key)
                 if not base:
                     raise SystemExit(f"no baseline bundles for map {key[0]} (IWAD {key[1][:12]})")
-                own = [METRICS[item["metric"]](B, next(s for s in B.slots if B.code[s] == code), sheet) for B in Bs]
+                own = [value(B, next(s for s in B.slots if B.code[s] == code), item["metric"], sheet) for B in Bs]
                 bv = baseline_values(base, item["metric"], sheet)
                 computed = [v for v in bv if v is not None]
                 p_pass = sum(passes(item, v) for v in computed)
@@ -521,7 +555,7 @@ def metric_matrix(bundles, baselines, sheets):
         for sh in sheets:
             per = {}
             for key, Bs in groups.items():
-                own = [METRICS[metric](B, next(s for s in B.slots if B.code[s] == sh["code"]), sh) for B in Bs]
+                own = [value(B, next(s for s in B.slots if B.code[s] == sh["code"]), metric, sh) for B in Bs]
                 bv = [v for v in baseline_values(baselines[key], metric, sh) if v is not None]
                 own_c = [v for v in own if v is not None]
                 per[key[0]] = {"median": _median(own_c), "n": len(own_c),
@@ -675,7 +709,7 @@ def compare(bundles, sheets, codes):
             vals = []
             for B in bundles:
                 s = next(k for k in B.slots if B.code[k] == sh["code"])
-                vals.append(METRICS[metric](B, s, sh))
+                vals.append(value(B, s, metric, sh))
             print(f"      {sh['code']}{'*' if sh['code'] in users else ' '} {', '.join(fmt(v) for v in vals)}")
 
 
