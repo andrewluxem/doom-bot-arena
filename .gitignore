@@ -1,6 +1,7 @@
 .venv/
 _vizdoom.ini
 __pycache__/
+.pytest_cache/
 
 # IWADs are never committed
 doom*.wad
