@@ -21,6 +21,8 @@ Milestone 2B mechanics, each driven by a sheet field (characters/README.md):
 Any bot spawned into a pocket it cannot leave (its reachable nav area under TRAPPED_NODES; on E1M5
 the exit room) uses the pocket's exit switch when no enemy is in view. Under sv_noexit that kills it
 (OB_EXIT, a self-kill) and it respawns elsewhere, as a player would. Otherwise it never uses an exit.
+A pocket with no exit switch (MAP10's, left in play only by an S1 floor switch the nav graph does
+not model) gets the console suicide instead (`kill`, OB_SUICIDE), once per life.
 
 The RNG is seeded from (match seed, slot).
 """
@@ -213,7 +215,7 @@ class PersonalityBot:
                 ln = math.hypot(l["x2"] - l["x1"], l["y2"] - l["y1"]) or 1.0
                 nx, ny = (l["y2"] - l["y1"]) / ln, -(l["x2"] - l["x1"]) / ln  # toward the front (right) side
                 self.exits.append((l["id"], (mx + 40 * nx, my + 40 * ny), (mx, my)))
-        self.spawned_at = 0
+        self.spawned_at, self.suicide_sent = 0, False
         self.attractors = ([(s["x"], s["y"], node(s["x"], s["y"])) for s in map_data["deathmatch_starts"]]
                            + [(w[1], w[2], w[3]) for w in self.weapon_things])
         for c in self.spot_cands:
@@ -256,13 +258,16 @@ class PersonalityBot:
             self._reroll(t, t // self.reroll_tics)
         self.perc.update(t, st, self.identity, x, y)
         self._watch_self(t, v, x, y)
-        if (t * 10) // TICRATE != ((t - 1) * 10) // TICRATE or self.scores is None:
+        decided = (t * 10) // TICRATE != ((t - 1) * 10) // TICRATE or self.scores is None
+        if decided:
             self._read_live(st)
             if self.d.item_timing:
                 self._observe_items(t, st, x, y, z, ang)
             self._decide(t, v, x, y)
         cmds = self.armory.select(t, self.weapon_choice, v)
         action = self._execute(t, v, x, y, z, ang)
+        if decided and self._suicide_now(t, x, y):
+            cmds = cmds + ["kill"]
         tgt = self.target.slot if (self.engaging and self.target is not None) else None
         return action, cmds, self.behavior, self.scores, {"weapon_name": self.armory.chosen, "target_slot": tgt}
 
@@ -295,7 +300,7 @@ class PersonalityBot:
         self.goal, self.path, self.spot, self.at_spot = None, None, None, False
         self.prev, self.trail, self.stuck_count = None, [], 0
         self.scores, self.berserk, self.wait_item = None, False, None
-        self.spawned_at = t
+        self.spawned_at, self.suicide_sent = t, False
 
     def _on_death(self, t):
         self._close_spot(t - 1)
@@ -657,6 +662,16 @@ class PersonalityBot:
             if best is None or reach[it["node"]] < best[0]:
                 best = (reach[it["node"]], (it["x"], it["y"]))
         return (best[1], "item:lure") if best else (None, None)
+
+    def _suicide_now(self, t, x, y):
+        """Trapped in a pocket without a reachable exit switch, nobody in view: respawn by the console suicide."""
+        if (self.suicide_sent or self.perc.visible() or t - self.spawned_at <= TRAPPED_WAIT
+                or (self.goal_tag or "").startswith("exit:")):
+            return False
+        if len(self._reach(t, x, y)) >= TRAPPED_NODES or self._exit_goal(t, x, y)[0] is not None:
+            return False
+        self.suicide_sent = True
+        return True
 
     def _exit_goal(self, t, x, y):
         """In a pocket the bot cannot leave: the approach point of an exit switch it can reach."""
