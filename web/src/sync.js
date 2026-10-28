@@ -77,7 +77,8 @@ export class VideoSync {
   tick(wall) {
     if (this.busy) return;
     const tic = this.clock.now(wall);
-    if (this.clock.playing && this.videos.some(({ el }) => el.readyState < 3 && !el.seeking)) {
+    const buffering = this.videos.some(({ el }) => el.readyState < 3 && !el.seeking && !el.ended);
+    if (this.clock.playing && tic < this.clock.max - 1 && buffering) {
       this.stalls++;
       this.play(); // hold the clock until every video can play again
       return;
@@ -91,6 +92,7 @@ export class VideoSync {
         if (Math.abs(el.currentTime - t) > 0.3 / this.rate) el.currentTime = t;
         continue;
       }
+      if (el.ended) continue; // the last frame stays up; play() here would restart from frame 0
       if (el.paused) el.play().catch(() => {});
       const drift = (el.currentTime - this.mediaTime(tic)) * this.rate;
       if (Math.abs(drift) > HARD) {

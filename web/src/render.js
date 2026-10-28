@@ -123,8 +123,8 @@ export function telemetry(b, ctx, o = {}) {
   h += `<div class="tg"><dt>FRAGS / DEATHS</dt><dd>${b.frags} <small>/</small> ${b.deaths}</dd></div>`;
   h += `<div class="tg" title="Engine FRAGCOUNT and DEATHCOUNT at the last tic. They include the pre-roll, so they can differ from the displayed columns."><dt>ENGINE AT END</dt><dd>${e.frags} <small>/</small> ${e.deaths}</dd></div>`;
   h += `<div class="tg"><dt>KILLS · TELE · SELF</dt><dd>${b.kills} <small>·</small> ${b.telefrags} <small>·</small> ${b.suicides}</dd></div>`;
-  if ('target' in b) h += `<div class="tg"><dt>TARGET</dt><dd>${b.target == null ? '—' : esc(b.target)}</dd></div>`;
-  if ('sector' in b) h += `<div class="tg"><dt>SECTOR</dt><dd>${b.sector == null ? '—' : esc(b.sector)}</dd></div>`;
+  if ('target' in b) h += `<div class="tg"><dt>TARGET</dt><dd>${b.target == null ? 'NONE' : esc(b.target)}</dd></div>`;
+  if ('sector' in b) h += `<div class="tg"><dt>SECTOR</dt><dd>${b.sector == null ? 'NONE' : esc(b.sector)}</dd></div>`;
   h += `<div class="tg tg-wide"><dt>POSITION · FACING</dt><dd>X ${Math.round(b.x)} <small>·</small> Y ${Math.round(b.y)} <small>·</small> ${Math.round(b.angle)}°</dd></div>`;
   h += '</dl>';
   if (!o.compact) {
