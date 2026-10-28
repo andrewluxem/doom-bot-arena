@@ -1,0 +1,40 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Option A — Phone</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../dba.css"><script src="../dba.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:var(--surface-0)}
+.brand{display:flex;flex-direction:column;gap:5px;white-space:nowrap}
+.brand-t{font:800 20px/1 var(--font-display);letter-spacing:.07em}
+.brand-s{font:500 9px/1 var(--font-mono);letter-spacing:.1em;color:var(--ink-muted)}
+.panel{border:1px solid var(--rule);background:var(--surface-1);padding:10px 12px;min-width:0;min-height:0;overflow:hidden}
+.panel>.kick{display:block;margin-bottom:8px}
+.feat{font:500 10px/1.5 var(--font-mono);letter-spacing:.05em;color:var(--ink-muted);border-top:1px solid var(--rule-soft);padding-top:8px;margin-top:10px}
+.feat b{color:var(--ink);font-weight:700}.ph{width:390px;height:844px;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.ph-top{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid var(--rule)}
+.ph-top .brand-t{font-size:16px}
+.ph-top .clk-t{font-size:22px}
+.ph-top .clk-of{display:none}
+.drawer{flex:none;display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-bottom:1px solid var(--rule);background:var(--surface-1);white-space:nowrap;overflow:hidden}
+.drawer .kick{font-size:11px;color:var(--ink)}
+.drawer .ldr{display:flex;gap:10px;font:600 11px/1 var(--font-mono);overflow:hidden}
+.drawer .ldr span{display:inline-flex;align-items:center;gap:4px}
+.drawer .ldr .sw{width:7px;height:7px}
+.drawer .chev{margin-left:auto;font:600 11px/1 var(--font-mono);color:var(--ink-muted)}
+.ph-dock{position:absolute;left:0;right:0;bottom:0;height:100px;display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:6px;padding:6px;border-top:1px solid var(--rule-strong);background:var(--surface-0)}
+.ph-dock .tlp{padding:8px 8px 6px}
+.ph-dock .mm-hd{height:16px;font-size:8px;padding:0 5px}
+
+.pa-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px 6px;flex:1;min-height:0;overflow:hidden;margin-bottom:100px;align-content:start}
+
+</style></head>
+<body>
+<div id="root" class="dba ph" data-theme="dark"></div>
+<script>
+(function(){var D=window.DBA;
+var r=document.getElementById('root');r.innerHTML='<header class="ph-top"><span class="brand-t">DOOM BOT ARENA</span>'+D.clock()+'</header>'+'<div class="drawer" role="button" aria-expanded="false"><span class="kick">STANDINGS</span><span class="ldr">'+D.BOTS.slice(0,3).map(function(b,i){return '<span style="--c:var(--bot-'+b.id+')">'+(i+1)+' <span class="sw"></span>'+b.cs+' '+b.f+'</span>'}).join('')+'</span><span class="chev">+5 \u25BE</span></div>'
++'<section class="pa-grid">'+D.BOTS.map(function(b){return D.tile(b.id,{size:'xs'})}).join('')+'</section>'
++'<section class="ph-dock"><div class="panel tlp">'+D.timeline({buckets:50,compact:true,noHead:true,noOverview:false,stack:3})+'</div>'+D.mapPanel({cls:'mm-panel--fill',ids:false,r:9,cone:52,tap:true})+'</section>';
+})();
+</script>
+</body>
+</html>

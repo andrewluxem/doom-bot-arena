@@ -1,0 +1,40 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Option B — Desktop</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../dba.css"><script src="../dba.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:var(--surface-0)}
+.brand{display:flex;flex-direction:column;gap:5px;white-space:nowrap}
+.brand-t{font:800 20px/1 var(--font-display);letter-spacing:.07em}
+.brand-s{font:500 9px/1 var(--font-mono);letter-spacing:.1em;color:var(--ink-muted)}
+.panel{border:1px solid var(--rule);background:var(--surface-1);padding:10px 12px;min-width:0;min-height:0;overflow:hidden}
+.panel>.kick{display:block;margin-bottom:8px}
+.feat{font:500 10px/1.5 var(--font-mono);letter-spacing:.05em;color:var(--ink-muted);border-top:1px solid var(--rule-soft);padding-top:8px;margin-top:10px}
+.feat b{color:var(--ink);font-weight:700}
+.b{width:1440px;height:900px;position:relative;display:grid;grid-template-columns:216px minmax(0,1fr) 216px;grid-template-rows:48px minmax(0,1fr);column-gap:16px;row-gap:8px;padding:8px 16px;overflow:hidden}
+.b-top{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--rule);padding-bottom:6px}
+.b-mode{font:600 10px/1 var(--font-mono);letter-spacing:.1em;color:var(--ink-muted);display:flex;gap:14px;align-items:center}
+.b-mode b{color:var(--ink)}
+.b-flank{display:flex;flex-direction:column;justify-content:space-between;min-height:0}
+.b-flank-h{font:600 9px/1 var(--font-mono);letter-spacing:.14em;color:var(--ink-faint);display:none}
+.b-c{display:flex;flex-direction:column;gap:8px;min-height:0}
+.b-map{flex:1;min-height:0;display:flex;justify-content:center}
+.b-map .mm-panel{height:100%;aspect-ratio:400/322}
+.b-map .mm-panel .mm{flex:1 1 0;height:0;min-height:0;aspect-ratio:auto}
+.b-bot{flex:none;height:226px;display:grid;grid-template-columns:400px minmax(0,1fr);gap:8px}
+
+</style></head>
+<body>
+<div id="root" class="dba b" data-theme="dark"></div>
+<script>
+(function(){var D=window.DBA;
+var SEC={'07':'NW','03':'N','01':'C\u00B7W','04':'W','05':'NE','02':'C\u00B7E','06':'SE','08':'S'};function fl(ids,side){return '<section class="b-flank" aria-label="'+(side==='l'?'West':'East')+' flank">'+ids.map(function(id){return D.tile(id,{size:'s',sector:SEC[id]}).replace('<article ','<article data-tether="'+side+'" ')}).join('')+'</section>'}
+var r=document.getElementById('root');r.innerHTML='<header class="b-top">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 10:00</span></div>'+'<span class="b-mode"><span>VIEW <b>SPATIAL RING</b></span><span>FEEDS PLACED BY SECTOR \u00B7 W FLANK / E FLANK</span></span>'+D.clock()+'</header>'+fl(['07','03','01','04'],'l')
++'<section class="b-c"><div class="b-map">'+D.mapPanel({ls:9,r:4.5,cone:44,sectors:true,secSize:6.5,callsigns:true})+'</div>'
++'<div class="b-bot"><div class="panel"><span class="kick">STANDINGS</span>'+D.scoreTable({state:true})+'</div><div class="panel">'+D.timeline({buckets:110})+'<div style="height:10px"></div><span class="kick">LAST FRAGS</span>'+D.killfeed(2)+'</div></div></section>'
++fl(['05','02','06','08'],'r')+'<svg class="tethers" aria-hidden="true"></svg>';
+function go(){D.tethers(r)}
+(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(function(){requestAnimationFrame(go)});setTimeout(go,600);window.addEventListener('resize',go);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Option C — Desktop</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../dba.css"><script src="../dba.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:var(--surface-0)}
+.c{width:1440px;height:900px;display:grid;grid-template-columns:300px 784px minmax(0,1fr);column-gap:28px;padding:24px;overflow:hidden}
+.c-left{display:flex;flex-direction:column;min-height:0}
+.c-left .sb-col{flex:1;display:flex;flex-direction:column}
+.c-left .sb-col li{flex:1;padding:0}
+.ck{font:800 12px/1 var(--font-grotesk);letter-spacing:.1em;text-transform:uppercase;border-bottom:4px solid var(--ink);padding-bottom:8px;display:flex;justify-content:space-between}
+.ck span{font:500 10px/1 var(--font-mono);letter-spacing:.06em}
+.c-mid{display:flex;flex-direction:column;min-height:0}
+.mast{display:flex;align-items:flex-end;justify-content:space-between;height:78px;border-bottom:4px solid var(--ink);padding-bottom:10px;margin-bottom:14px}
+.mast h1{font:900 52px/.9 var(--font-grotesk);letter-spacing:-.03em;font-stretch:112%}
+.mast p{font:500 10px/1.5 var(--font-mono);letter-spacing:.06em;text-align:right;color:var(--ink-muted)}
+.c-grid{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;row-gap:14px}
+.c-rail{display:flex;flex-direction:column;gap:22px;min-height:0}
+.c-clock{border-bottom:4px solid var(--ink);padding-bottom:10px;display:flex;flex-direction:column;gap:8px}
+.c-clock .t{font:900 64px/.85 var(--font-grotesk);letter-spacing:-.04em}
+.c-clock .m{display:flex;justify-content:space-between;align-items:center;font:500 10px/1 var(--font-mono);letter-spacing:.08em;color:var(--ink-muted)}
+.c-clock .live{font:700 10px/1 var(--font-mono);letter-spacing:.12em;background:var(--ink);color:var(--surface-0);padding:3px 6px}
+.c-rail .kf li{grid-template-columns:36px auto 10px auto}
+.c-rail .kf-w{display:none}
+.c-rail .mm-panel{margin-top:auto;border:2px solid var(--ink)}
+.c-rail .mm-hd{border-bottom:1px solid var(--ink);color:var(--ink)}
+.c-rail .tl-hd .tl-sub{display:none}
+.c .tl-k{font:800 12px/1 var(--font-grotesk);letter-spacing:.1em;color:var(--ink)}
+
+</style></head>
+<body>
+<div id="root" class="dba c" data-theme="paper"></div>
+<script>
+(function(){var D=window.DBA;
+var r=document.getElementById('root');r.innerHTML=
+'<aside class="c-left"><div class="ck">Standings<span>F &nbsp; D</span></div>'+D.scoreColumn()+'</aside>'
++'<main class="c-mid"><header class="mast"><h1>Doom Bot Arena</h1><p>LIVE DEATHMATCH \u00B7 8 PERSONALITY BOTS<br>FEEDS 4:3 \u00B7 FIRST PERSON \u00B7 2\u00D74</p></header>'
++'<section class="c-grid">'+D.BOTS.map(function(b){return D.ctile(b.id)}).join('')+'</section></main>'
++'<aside class="c-rail"><div class="c-clock"><span class="t">02:14</span><span class="m"><span class="live">LIVE</span><span>OF 10:00 \u00B7 62 FRAGS</span></span></div>'
++D.timeline({buckets:50,compact:true,stack:3})
++'<div><div class="ck" style="margin-bottom:6px">Kill feed</div>'+D.killfeed(6)+'</div>'
++D.mapPanel({ls:15,r:6})+'</aside>';
+})();
+</script>
+</body>
+</html>

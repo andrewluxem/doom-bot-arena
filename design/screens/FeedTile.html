@@ -1,0 +1,22 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Feed tile</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../dba.css"><script src="../dba.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:var(--surface-0)}
+.wrap{padding:20px;display:flex;flex-direction:column;gap:18px;width:1120px}
+.row{display:grid;grid-template-columns:repeat(3,320px);gap:16px;align-items:start}
+.lbl{font:600 10px/1 var(--font-mono);letter-spacing:.12em;color:var(--ink-muted);margin-bottom:8px;display:block}
+.crow{display:grid;grid-template-columns:repeat(3,350px);gap:20px}
+
+</style></head>
+<body>
+<div id="root" class="dba"></div>
+<script>
+(function(){var D=window.DBA;
+var r=document.getElementById('root');function cell(l,h){return '<div><span class="lbl">'+l+'</span>'+h+'</div>'}
+r.innerHTML='<div class="wrap" data-theme="dark" style="background:var(--surface-0);color:var(--ink)"><div class="row">'+cell('IN COMBAT + CRITICAL HP',D.tile('01'))+cell('NORMAL (QUIET CHROME)',D.tile('03'))+cell('DEAD / RESPAWNING',D.tile('04'))+'</div></div>'
++'<div class="wrap" data-theme="paper" style="background:var(--surface-0);color:var(--ink)"><div class="crow">'+cell('C · IN COMBAT',D.ctile('02'))+cell('C · NORMAL',D.ctile('06'))+cell('C · DEAD',D.ctile('04'))+'</div></div>';
+})();
+</script>
+</body>
+</html>

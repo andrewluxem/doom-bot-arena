@@ -1,0 +1,36 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><title>Cover</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../dba.css"><script src="../dba.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:var(--surface-0)}
+.cv{position:relative;width:960px;height:288px;background:var(--surface-0);overflow:hidden}
+.cv svg{position:absolute;inset:0}
+.vex{fill:var(--bot-01)} .krn{fill:var(--bot-02)} .ash{fill:var(--bot-04)} .ink{fill:var(--ink)} .gnd{fill:var(--surface-0)}
+.plus{stroke:var(--ink-faint);stroke-width:1.5}
+.tx{position:absolute;left:32px;bottom:28px;max-width:440px}
+.cv-nm{font:800 88px/.92 var(--font-display);letter-spacing:.01em;color:var(--ink);text-transform:uppercase;margin:0}
+.cv-tg{font:500 13px/1.4 var(--font-mono);color:var(--ink-muted);margin:12px 0 0}
+</style></head>
+<body>
+<div class="cv">
+<!--
+blocks: bot-01 208x288 (x480), bot-02 208x240 bleeding right/bottom (x752), bot-04 64x96 (x688), ink 64x48 (x688,y240); radius-0 corners throughout.
+arrangement: two tall slabs facing across a 64px channel, like the two duellists; sulphur and ink cap the channel ends.
+pattern: literal motif (FOV cone): one 60-degree wedge cut out of each slab, pointing at each other, plus a plus-grid in the channel; chosen because the cones meeting in the centre are this product's signature moment.
+steps and radii: grid pitch 24 (space-6), channel 64, wedge depth 80, all corners radius-0.
+-->
+<svg viewBox="0 0 960 288" width="960" height="288" aria-hidden="true">
+<rect class="vex" x="480" y="0" width="208" height="288"/>
+<rect class="krn" x="752" y="48" width="208" height="240"/>
+<rect class="ash" x="688" y="0" width="64" height="96"/>
+<rect class="ink" x="688" y="240" width="64" height="48"/>
+<path class="gnd" d="M688 120 L608 74 L608 166 Z"/>
+<path class="gnd" d="M752 168 L832 122 L832 214 Z"/>
+<g class="plus">
+<path d="M714 120h12M720 114v12M714 144h12M720 138v12M714 168h12M720 162v12M714 192h12M720 186v12M714 216h12M720 210v12"/>
+</g>
+</svg>
+<div class="tx"><h1 class="cv-nm">Doom Bot<br>Arena</h1><p class="cv-tg">Eight bots, one arena, every feed live.</p></div>
+</div>
+</body>
+</html>

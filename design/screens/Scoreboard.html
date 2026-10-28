@@ -1,0 +1,22 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scoreboard</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../dba.css"><script src="../dba.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:var(--surface-0)}
+.wrap{padding:20px;display:flex;flex-direction:column;gap:22px;width:1180px}
+.lbl{font:600 10px/1 var(--font-mono);letter-spacing:.12em;color:var(--ink-muted);margin-bottom:8px;display:block}
+.strip{height:56px;border:1px solid var(--rule);background:var(--surface-1)}
+.two{display:grid;grid-template-columns:420px 340px;gap:40px;align-items:start}
+.paper{background:var(--surface-0);padding:16px;color:var(--ink)}
+.paper .sb-col li{padding:10px 0}
+
+</style></head>
+<body>
+<div id="root" class="dba"></div>
+<script>
+(function(){var D=window.DBA;
+document.getElementById('root').innerHTML='<div class="wrap"><div><span class="lbl">A · HORIZONTAL STRIP</span><div class="strip">'+D.scoreStrip()+'</div></div><div class="two"><div><span class="lbl">B / PHONE DRAWER · TABLE</span>'+D.scoreTable({state:true})+'</div><div class="paper" data-theme="paper"><span class="lbl">C · COLUMN (PAPER)</span>'+D.scoreColumn()+'</div></div></div>';
+})();
+</script>
+</body>
+</html>
