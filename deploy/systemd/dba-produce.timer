@@ -1,0 +1,13 @@
+# Three runs a day, eight hours apart (local time). Persistent catches up a run missed while the box was off.
+[Unit]
+Description=Doom Bot Arena: three production matches a day
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+OnCalendar=*-*-* 11:20:00
+OnCalendar=*-*-* 19:20:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

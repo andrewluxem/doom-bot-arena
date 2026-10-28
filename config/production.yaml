@@ -1,0 +1,24 @@
+# Production pipeline (tools/produce.py, docs/PRODUCTION.md). Paths are as the match container sees them:
+# the repo is /repo, the env file's folder /config, and IWAD_DIR (Makefile) /iwads, read-only.
+
+# Map rotation, in order: each run plays the entry after the last published bundle's map.
+# iwad is freedoom1 or freedoom2 (the IWADs shipped with ViZDoom) or a path to an IWAD file.
+# An entry with `if_present: true` is skipped while its IWAD file is missing (original Doom maps).
+maps:
+  - {map: MAP01, iwad: freedoom2}
+  - {map: MAP10, iwad: freedoom2, traffic: [bundles/eval-2c/MAP10, bundles/eval-2d/MAP10]}
+  - {map: E1M5, iwad: freedoom1, traffic: [bundles/eval-2c/E1M5, bundles/eval-2d/E1M5]}
+  # Original Doom, added once doom.wad is in IWAD_DIR. Publishing it also needs allow_non_freedoom.
+  # - {map: E1M1, iwad: /iwads/doom.wad, if_present: true}
+
+# Publishing a bundle whose IWAD sha256 is not a known Freedoom release is refused unless this is true
+# (or produce.py runs with --allow-non-freedoom). Known releases: the two IWADs ViZDoom ships, plus these.
+allow_non_freedoom: false
+freedoom_sha256: []
+
+matches_per_run: 1
+duration_tics: 10500        # 5 minutes at 35 tics per second, after the pre-roll
+crf: 32                     # published POV videos are re-encoded from the capture's crf 23 at this crf
+keep_local: 2               # published bundles kept under out_dir; older ones (and their captures) are deleted
+min_free_gb: 20             # refuse to start a match with less free disk than this where bundles are written
+out_dir: bundles/production

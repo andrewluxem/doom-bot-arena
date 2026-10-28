@@ -181,3 +181,38 @@ docker-fit-2d:
 
 docker-eval-2b:
 	$(DOCKER_RUN) make eval-2b EVAL2B_MAPS="$(EVAL2B_MAPS)" EVAL2B_SEEDS="$(EVAL2B_SEEDS)" EVAL2B_OUT=$(EVAL2B_OUT) BASE_OUT=$(BASE_OUT)
+
+# Milestone 3 production pipeline (docs/PRODUCTION.md). The env file's folder is mounted at /config (produce.py
+# writes BLOB_PUBLIC_BASE back to it); IWAD_DIR holds IWADs other than the Freedoom ones ViZDoom ships.
+PRODUCE_ENV_DIR ?= $(HOME)/.config/doom-bot-arena
+IWAD_DIR ?= $(HOME)/.local/share/doom-bot-arena/iwads
+PRODUCE_ARGS ?=
+PRODUCE_RUN = mkdir -p "$(IWAD_DIR)" && docker run --rm --init --platform linux/amd64 -v "$(CURDIR)":/repo \
+	-v "$(PRODUCE_ENV_DIR)":/config -v "$(IWAD_DIR)":/iwads:ro $(IMAGE) python3 -u tools/produce.py
+SYSTEMD_USER_DIR ?= $(HOME)/.config/systemd/user
+
+.PHONY: produce produce-publish produce-reindex install-timer uninstall-timer
+
+produce:
+	$(PRODUCE_RUN) run $(PRODUCE_ARGS)
+
+produce-publish:
+	$(PRODUCE_RUN) publish $(BUNDLE) $(PRODUCE_ARGS)
+
+produce-reindex:
+	$(PRODUCE_RUN) reindex $(PRODUCE_ARGS)
+
+# Three runs a day from a systemd user timer; lingering keeps it running without a login session.
+install-timer:
+	mkdir -p "$(SYSTEMD_USER_DIR)"
+	sed "s|@REPO@|$(CURDIR)|g" deploy/systemd/dba-produce.service > "$(SYSTEMD_USER_DIR)/dba-produce.service"
+	cp deploy/systemd/dba-produce.timer "$(SYSTEMD_USER_DIR)/dba-produce.timer"
+	systemctl --user daemon-reload
+	systemctl --user enable --now dba-produce.timer
+	loginctl enable-linger "$$USER"
+	systemctl --user list-timers dba-produce.timer
+
+uninstall-timer:
+	-systemctl --user disable --now dba-produce.timer
+	rm -f "$(SYSTEMD_USER_DIR)/dba-produce.service" "$(SYSTEMD_USER_DIR)/dba-produce.timer"
+	systemctl --user daemon-reload
