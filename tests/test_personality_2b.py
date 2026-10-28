@@ -52,6 +52,16 @@ def test_item_seen_to_vanish_gets_a_window():
     assert (it["back"], it["back_hi"], it["seen"]) == (1300, 1300, 1300)
 
 
+def test_a_late_item_keeps_its_timer_through_the_grace():
+    it = item()
+    it["back"] = it["back_hi"] = 1100  # own pickup at tic 50
+    assert C.pending(it, 1100) and C.pending(it, 1100 + C.WAIT_GRACE - 1)
+    C.observe_item(it, 1102, False)  # two tics late: not a new pickup
+    assert (it["back"], it["back_hi"]) == (1102, 1100)
+    C.observe_item(it, 1104, True)
+    assert not C.pending(it, 1104) and it["seen"] == 1104
+
+
 def test_item_never_seen_then_missing_can_be_back_any_time_within_30s():
     it = item()
     C.observe_item(it, 700, False)
@@ -59,6 +69,8 @@ def test_item_never_seen_then_missing_can_be_back_any_time_within_30s():
     C.observe_item(it, 900, False)
     assert (it["back"], it["back_hi"]) == (900, 700 + C.ITEM_RESPAWN)
     assert C.expected_back(it) == (900 + 700 + C.ITEM_RESPAWN) / 2
+    C.observe_item(it, 700 + C.ITEM_RESPAWN + C.WAIT_GRACE + 1, False)  # overdue: taken again unseen
+    assert it["back_hi"] == 700 + 2 * C.ITEM_RESPAWN + C.WAIT_GRACE + 1
 
 
 # ---------------------------------------------------------------- flank (PYR)

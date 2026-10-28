@@ -18,6 +18,10 @@ Milestone 2B mechanics, each driven by a sheet field (characters/README.md):
   melee, berserk   melee weapons fire only within reach; items.weights.berserk lures the bot to a
                    berserk pack, which makes the fist its best weapon until it dies
 
+Any bot spawned into a pocket it cannot leave (its reachable nav area under TRAPPED_NODES; on E1M5
+the exit room) uses the pocket's exit switch when no enemy is in view. Under sv_noexit that kills it
+(OB_EXIT, a self-kill) and it respawns elsewhere, as a player would. Otherwise it never uses an exit.
+
 The RNG is seeded from (match seed, slot).
 """
 
@@ -62,6 +66,7 @@ ITEM_FOV = 42.0  # half-angle, inside the 45-degree half view so an item at the 
 ITEM_LABEL_MATCH = 24
 TIMED_WAIT_MAX = 10 * TICRATE  # an item-timing bot will wait up to this long at an item
 WAIT_RADIUS = 40
+WAIT_GRACE = 2 * TICRATE  # ZDoom brings an item back a tic or two after RESPAWN_TICS; wait past the window
 LURE_CLASSES = ("berserk",)  # one-off pickups a bot goes out of its way for when its sheet weights them
 LURE_WEIGHT = 0.5
 TOUCH = 36  # player half-size 16 + pickup radius 20: Doom touches boxes
@@ -70,6 +75,9 @@ FLANK_RANGE = 1024
 FLANK_PENALTY = 3.0  # extra cost factor of path edges into the target's cone
 FLANK_REAR = 160  # the flank goal sits this far behind a known enemy
 RETREAT_PROBE = 96
+TRAPPED_NODES = 600  # E1M5's exit room is 291 nav nodes and MAP10's teleporter pocket 164; MAP10's
+                     # smaller arena, 1634, is a place to fight in, not a trap
+TRAPPED_WAIT = 3 * TICRATE
 
 
 def wrap180(a):
@@ -131,18 +139,25 @@ def roll(sheet, rng):
 
 
 def observe_item(it, t, there):
-    """Update an item's respawn window from one look at its place. `back`..`back_hi` is when it can
-    reappear; `seen` the last tic it was seen in place (None once it is known to be gone)."""
+    """Update an item's respawn window from one look at its place. `seen` is the last tic it was seen in
+    place, or None while it is gone (or never looked at); `back`..`back_hi` is when a gone item reappears."""
     if there:
+        if it["seen"] is None:
+            it["back"] = it["back_hi"] = t  # back
         it["seen"] = t
-        if it["back_hi"] > t:
-            it["back"] = it["back_hi"] = t
-    elif it["back_hi"] <= t:  # believed there, and it is not: taken since it was last seen
-        it["back"] = max(t, it["seen"] + ITEM_RESPAWN) if it["seen"] is not None else t
+    elif it["seen"] is not None:  # it was there and is not: taken since it was last seen
+        it["back"] = max(t, it["seen"] + ITEM_RESPAWN)
         it["back_hi"] = t + ITEM_RESPAWN
         it["seen"] = None
-    else:  # known to be gone, and still gone: not back before now
+    elif t > it["back_hi"] + WAIT_GRACE:  # never seen, or overdue: it went at some time we did not see
+        it["back"], it["back_hi"] = t, t + ITEM_RESPAWN
+    else:  # gone and not due yet
         it["back"] = max(it["back"], t)
+
+
+def pending(it, t):
+    """A timed item not yet seen back, up to WAIT_GRACE past the end of its window."""
+    return it["seen"] is None and t < it["back_hi"] + WAIT_GRACE
 
 
 def expected_back(it):
@@ -191,6 +206,14 @@ class PersonalityBot:
                 n = it["node"]
                 it["z"] = self.graph.floor[self.graph.nodes[n][2]] if n is not None else 0.0
         self.wait_item = None  # the item a timing bot is waiting at for its respawn
+        self.exits = []  # (line id, approach point, midpoint) of every exit switch line
+        for l in map_data["linedefs"]:
+            if l.get("exit") and l["special"] in (11, 51):  # S1 exit, S1 secret exit: used, not walked over
+                mx, my = (l["x1"] + l["x2"]) / 2, (l["y1"] + l["y2"]) / 2
+                ln = math.hypot(l["x2"] - l["x1"], l["y2"] - l["y1"]) or 1.0
+                nx, ny = (l["y2"] - l["y1"]) / ln, -(l["x2"] - l["x1"]) / ln  # toward the front (right) side
+                self.exits.append((l["id"], (mx + 40 * nx, my + 40 * ny), (mx, my)))
+        self.spawned_at = 0
         self.attractors = ([(s["x"], s["y"], node(s["x"], s["y"])) for s in map_data["deathmatch_starts"]]
                            + [(w[1], w[2], w[3]) for w in self.weapon_things])
         for c in self.spot_cands:
@@ -272,6 +295,7 @@ class PersonalityBot:
         self.goal, self.path, self.spot, self.at_spot = None, None, None, False
         self.prev, self.trail, self.stuck_count = None, [], 0
         self.scores, self.berserk, self.wait_item = None, False, None
+        self.spawned_at = t
 
     def _on_death(self, t):
         self._close_spot(t - 1)
@@ -487,6 +511,8 @@ class PersonalityBot:
         if goal is None and b in ("ROAMING", "HUNTING") and (b == "ROAMING" or latest is None
                                                              or t - latest.last_seen > RECENT_CONTACT):
             goal, tag = self._lure_goal(t, x, y)
+        if goal is None and not self.perc.visible() and t - self.spawned_at > TRAPPED_WAIT:
+            goal, tag = self._exit_goal(t, x, y)
         if goal is None:
             if b == "IN_COMBAT":
                 if self.target is not None and not self.target.visible:
@@ -499,23 +525,10 @@ class PersonalityBot:
                         # got there and nobody is in view, or there is no way there (seen through a window)
                         self.searched[latest.key] = latest.last_seen
                         goal, tag = self._random_attractor(t, x, y), "hunt"
-                elif self.goal_tag == "hunt" and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
-                    goal, tag = self.goal, "hunt"
                 else:
-                    goal, tag = self._random_attractor(t, x, y), "hunt"
+                    goal, tag = self._idle_goal(t, x, y, "hunt")
             elif b == "ROAMING":
-                if self.d.item_timing:
-                    held = self._item_at(self.goal) if self.goal_tag == "item:timed" else None
-                    if held is not None and held["back_hi"] > t and t - self.goal_set_at < GOAL_TIMEOUT + TIMED_WAIT_MAX:
-                        goal, tag = self.goal, "item:timed"  # keep the item being timed until it is back
-                    else:
-                        goal, tag = self._timed_item_goal(t, x, y)
-                if goal is not None:
-                    pass
-                elif self.goal_tag == "roam" and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
-                    goal, tag = self.goal, "roam"
-                else:
-                    goal, tag = self._random_attractor(t, x, y), "roam"
+                goal, tag = self._idle_goal(t, x, y, "roam")
             elif b == self.d.hold_label and self.spot is not None:
                 goal, tag = (self.spot["x"], self.spot["y"]), f"spot:{self.spot['id']}"
             elif b == "COLLECTING_HEALTH":
@@ -551,6 +564,20 @@ class PersonalityBot:
             near = abs(nx - cx) < FLANK_RANGE and abs(ny - cy) < FLANK_RANGE
             return FLANK_PENALTY if near and in_cone(nx, ny, cx, cy, facing) else 0.0
         return penalty
+
+    def _idle_goal(self, t, x, y, tag):
+        """With no enemy to look for: an item-timing bot runs its item circuit; any other bot (or a timer with
+        nothing due) keeps its current wander goal until GOAL_TIMEOUT, then draws a new one."""
+        if self.d.item_timing:
+            held = self._item_at(self.goal) if self.goal_tag == "item:timed" else None
+            if held is not None and pending(held, t) and t - self.goal_set_at < GOAL_TIMEOUT + TIMED_WAIT_MAX:
+                return self.goal, "item:timed"  # keep the item being timed until it is back
+            goal, timed = self._timed_item_goal(t, x, y)
+            if goal is not None:
+                return goal, timed
+        if self.goal_tag == tag and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
+            return self.goal, tag
+        return self._random_attractor(t, x, y), tag
 
     def _weapon_goal(self, t, x, y):
         want = [w for w in self.resolved if self.d.weapon_weights.get(w, 0) > 0.5 * self.best_weight
@@ -623,6 +650,17 @@ class PersonalityBot:
             if best is None or reach[it["node"]] < best[0]:
                 best = (reach[it["node"]], (it["x"], it["y"]))
         return (best[1], "item:lure") if best else (None, None)
+
+    def _exit_goal(self, t, x, y):
+        """In a pocket the bot cannot leave: the approach point of an exit switch it can reach."""
+        reach = self._reach(t, x, y)
+        if len(reach) >= TRAPPED_NODES:
+            return None, None
+        for line_id, (ax, ay), _ in self.exits:
+            n = self.graph.nearest(ax, ay, max_dist=64)
+            if n is not None and n in reach:
+                return (ax, ay), f"exit:{line_id}"
+        return None, None
 
     def _enemy_goal(self, t, c):
         """Where to look for a known enemy: where it is expected, or for a flanker a point behind it."""
@@ -708,6 +746,13 @@ class PersonalityBot:
         else:
             self.trail.clear()  # standing still on purpose is not being stuck
 
+        if self.goal_tag and self.goal_tag.startswith("exit:"):
+            line_id = int(self.goal_tag[5:])
+            _, (ax, ay), (mx, my) = next(e for e in self.exits if e[0] == line_id)
+            if math.hypot(ax - x, ay - y) < 32:  # USE reaches 72 units from the line's midpoint
+                move, face = None, bearing(x, y, mx, my)
+                if t - self.use_tic >= 8 and self._use_hits(x, y, line_id):
+                    action["USE"], self.use_tic = 1, t
         door = action.pop("_door", None)
         if door is not None:  # a closed door on the path: open it before anything else
             face, aim = door, None
@@ -790,7 +835,7 @@ class PersonalityBot:
 
     def _waiting(self, t, x, y):
         it = self.wait_item
-        return (it is not None and self.behavior != "IN_COMBAT" and it["back_hi"] > t
+        return (it is not None and self.behavior != "IN_COMBAT" and pending(it, t)
                 and math.hypot(it["x"] - x, it["y"] - y) < WAIT_RADIUS)
 
     def _combat_move(self, t, x, y):
