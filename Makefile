@@ -22,7 +22,7 @@ EVAL2B_MAPS ?= MAP10 E1M5
 EVAL2B_SEEDS ?= 301 302 303 304 305
 EVAL2B_OUT ?= bundles/eval-2b
 
-.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn match validate eval baseline eval-2b signatures-2b signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b
+.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b
 
 test:
 	$(PYTHON) -m pytest -q tests
@@ -40,6 +40,10 @@ bench-personality:
 
 bench-spawn:
 	$(PYTHON) -m engine.bench.spawn_telefrags --seeds 1-10 --out out/bench
+
+# Milestone 2C: do picked-up items respawn under the match's host arguments (with a negative control)?
+bench-items:
+	for m in MAP10 E1M5; do $(PYTHON) -m engine.bench.item_respawn --map $$m --out out/bench || exit 1; done
 
 match:
 	$(PYTHON) -m engine.runner --duration-tics $(TICS) --seed $(SEED) --out bundles
