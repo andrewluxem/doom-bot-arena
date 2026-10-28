@@ -1,0 +1,2 @@
+vizdoom==1.2.4
+PyYAML==6.0.3
