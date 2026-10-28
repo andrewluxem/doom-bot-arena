@@ -40,7 +40,14 @@ Applied to the 2A evaluation (MAP01, seeds 101–105, 25 placeholder bot-matches
 
 On 2026-10-28, at the start of milestone 2B, VEX's threshold moved to `median_kill_distance < 140` (data change only). At `< 160` it cleared the rule by one placeholder bot-match.
 
-**Open: milestone 2B replaces the five placeholders with personalities**, so its evaluation has no placeholder bot-matches to separate from. It will need another baseline.
+### Milestone 2B: a placeholder baseline per map
+
+All eight bots are personalities in milestone 2B, so the placeholders come from separate matches. `make docker-baseline` runs five five-minute matches per map with all eight slots as placeholders, at seeds 201 to 205. The baseline bot-matches for a map are every slot of every baseline match on that map: 40 per map.
+- **Gating on a map.** A personality's metric gates on a map if it fails for at least 80% of that map's baseline bot-matches, against the personality's own threshold. A baseline bot-match where the metric is `n/a` is left out.
+- **Sheet parameters.** Metrics that read the sheet (`engagement_distance_in_band_share` reads `preferred_range`, `retreat_on_close_share` reads `retreat_distance`) are computed for baseline bots with the personality's sheet. In 2A each placeholder's own sheet was used, which made no difference for the 2A metrics.
+- **Acceptance.** A bot is accepted if at least one of its metrics gates on every map evaluated and passes in at least 80% of its matches (8 of 10 on MAP10 and E1M5).
+- **Rank metrics cannot gate against an all-placeholder baseline.** In every match at least two of the eight bots hold rank 1 or 2 (ties share the better rank), so at least 25% of baseline bot-matches pass a `<= 2`. At most 75% fail, under the 80% the rule needs. This affects `distance_traveled_rank` (NUL's 2A gate) and `armor_pickups_rank` (PYR).
+- `tools/signatures.py --baseline <bundles> <bundles>` applies this per map. It prints every metric for all eight bots against the baseline, and the pairs of bots that share a top behavior.
 
 ## Common terms
 
