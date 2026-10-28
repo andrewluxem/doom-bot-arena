@@ -2,7 +2,7 @@
 
 Every metric named in a `signature` block of `characters/*.yaml`, defined so it can be computed from a bundle's `tics.jsonl` and `events.jsonl`. Two metrics also need item positions from the bundle's `map.json`; they say so. `tools/signatures.py` implements them and reports each bot against its sheet's thresholds.
 
-A sheet's signature is met in a match when every one of its gating metrics passes its `op` and `value`; descriptive metrics are reported and do not count (see Separation). A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass. `tools/signatures.py` prints each metric of the reported bots against the placeholders; `--compare` adds the other personalities.
+A sheet's signature is met in a match when every one of its gating metrics passes its `op` and `value`; descriptive metrics are reported and do not count (see Separation). A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass. `tools/signatures.py` prints each metric of the reported bots against the other seven personalities (milestone 2C) or, for bundles with placeholders, against the placeholders; `--compare` adds the other personalities.
 
 Three metrics use the damage counters schema 3 adds (`hitcount`, `damagecount`, `damage_taken`), so they are `n/a` on schema 1 and 2 bundles: `melee_damage_share`, `chainsaw_damage_share` and `approach_outside_view_cone_share`.
 
@@ -72,6 +72,15 @@ Applied to the 2B evaluation: five matches per map at seeds 301–305, against t
 | ZED | `chainsaw_damage_share > 0.4` | 0/39 | 0/35 | gate | 0 + 0 = 0/10 |
 
 Only ASH meets a gating metric in 8 of 10 matches, and that metric holds by construction: ASH may hold only the fist and chainsaw, and no placeholder ever melees. PYR has no metric that separates on either map. `approach_outside_view_cone_share` is lower for every personality (0.23 to 0.50 by map median) than for placeholders (0.59 to 0.69): placeholders' targets wander and rarely face them, so a placeholder baseline does not suit a metric measured against the target's facing.
+
+### Milestone 2C: the roster baseline
+
+From milestone 2C the placeholder baseline no longer decides gating; `make docker-baseline` stays for frag rates. Separation is against the roster instead:
+- **Roster bot-matches.** For a bot on a map, every slot of the other seven personalities in that map's evaluation matches: 35 per map at five matches. Each is measured against the bot's own threshold and, for metrics that read the sheet, with the bot's sheet. One where the metric is `n/a` is left out.
+- **Separates on a map** if at least 80% of the roster bot-matches on that map fail it.
+- **Gates** if it separates on every map evaluated and the bot passes it in at least 80% of its matches (8 of 10 on MAP10 and E1M5). Acceptance is at least one gating metric per bot.
+- Rank metrics can separate now: in a match where the bot holds rank 1 or 2, the other seven fill at least one more rank `<= 2`, so about 1 in 7 roster bot-matches pass.
+- `tools/signatures.py` applies this rule whenever every bot in the bundles is a personality (`make signatures-2c`). It prints every metric for all eight bots against the other seven's median and range, and the pairs of bots that share a top behavior.
 
 ## Common terms
 

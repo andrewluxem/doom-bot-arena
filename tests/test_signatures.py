@@ -119,29 +119,35 @@ def on_map(bundles, map_name, seed0=1):
     return bundles
 
 
-def baseline(map_name, matches):
-    """All-placeholder bundles: every slot is a baseline bot-match."""
-    out = on_map(fake_bundles(matches), map_name)
-    for B in out:
-        B.controller = {s: S.PLACEHOLDER for s in B.slots}
-    return out
+def roster(bundles):
+    """Every slot a personality: the roster baseline."""
+    for B in bundles:
+        B.controller = {s: "personality" for s in B.slots}
+    return bundles
 
 
-def test_baseline_separation_is_per_map_and_gates_only_on_every_map(fake_metric):
-    shs = sheets()
-    evals = on_map(fake_bundles([match(5, [0] * 5)] * 5), "MAP10") + on_map(fake_bundles([match(5, [0] * 5)] * 5), "E1M5")
-    # seven slots per fake match: MAP10's baseline passes 5 of 35 (86% fail), E1M5's 15 of 35 (57% fail)
-    base = {("MAP10", "sha"): baseline("MAP10", [match(5, [20] * 5, 20)] * 5),
-            ("E1M5", "sha"): baseline("E1M5", [match(5, [5, 5, 20, 20, 20], 20)] * 5)}
-    [x] = S.separation_vs_baseline(evals, base, shs, ["VEX"])
-    assert x["maps"]["MAP10"]["baseline"]["passes"] == 5  # the VEX slot of each baseline match (value 5) passes
-    assert x["maps"]["MAP10"]["separates"] and not x["maps"]["E1M5"]["separates"]
-    assert x["separates_on"] == ["MAP10"] and not x["gates"] and not x["accepts"]
+def test_roster_separation_is_per_map_and_gates_only_on_every_map(fake_metric):
+    # VEX passes (5 < 10) in all ten; the other six fake slots are the roster
+    map10 = roster(on_map(fake_bundles([match(5, [20] * 5, 20)] * 4 + [match(5, [5, 20, 20, 20, 20], 20)]), "MAP10"))
+    e1m5 = roster(on_map(fake_bundles([match(5, [5, 5, 20, 20, 20], 20)] * 5), "E1M5"))
+    [x] = S.separation_vs_roster(map10 + e1m5, sheets(), ["VEX"])
+    m = x["maps"]["MAP10"]["roster"]
+    assert (m["passes"], m["computed"]) == (1, 30)  # VEX's own slot is not in the roster
+    assert x["maps"]["MAP10"]["separates"] and not x["maps"]["E1M5"]["separates"]  # 97% and 67% fail
+    assert x["separates_on"] == ["MAP10"] and not x["gates"]
     assert (x["passes"], x["matches"]) == (10, 10)
 
 
-def test_baseline_must_be_all_placeholders(fake_metric):
-    evals = on_map(fake_bundles([match(5, [0] * 5)]), "MAP10")
-    base = {("MAP10", "sha"): on_map(fake_bundles([match(5, [20] * 5)]), "MAP10")}  # slots 1 and 6 are personalities
-    with pytest.raises(SystemExit):
-        S.separation_vs_baseline(evals, base, sheets(), ["VEX"])
+def test_roster_gate_needs_the_bot_to_pass_in_80_percent(fake_metric):
+    eight = roster(on_map(fake_bundles([match(5, [20] * 5, 20)] * 8 + [match(50, [20] * 5, 20)] * 2), "MAP10"))
+    [x] = S.separation_vs_roster(eight, sheets(), ["VEX"])
+    assert x["gates"]
+    seven = roster(on_map(fake_bundles([match(5, [20] * 5, 20)] * 7 + [match(50, [20] * 5, 20)] * 3), "MAP10"))
+    [x] = S.separation_vs_roster(seven, sheets(), ["VEX"])
+    assert x["separates_on"] == ["MAP10"] and not x["gates"]
+
+
+def test_roster_leaves_out_na_and_placeholders(fake_metric):
+    bundles = on_map(fake_bundles([match(5, [5, None, None, None, None], 20)]), "MAP10")  # 2, 4, 5, 7, 8 placeholders
+    [x] = S.separation_vs_roster(bundles, sheets(), ["VEX"])
+    assert (x["maps"]["MAP10"]["roster"]["computed"], x["maps"]["MAP10"]["roster"]["na"]) == (1, 0)  # only HEX
