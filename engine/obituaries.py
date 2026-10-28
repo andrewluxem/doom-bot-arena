@@ -20,18 +20,19 @@ from typing import NamedTuple
 
 PREFIX = "OBIT|"
 
-# Class per key, from ClientObituary (p_interaction.cpp):
+# Class per key, from ClientObituary (p_interaction.cpp) and the P_DamageMobj source of each kind:
 #   weapon       a player killed another player; killer != victim, engine +1 to killer
 #   telefrag     OB_MPTELEFRAG; killer != victim, engine +1 unless at level start
-#   selfkill     attacker == victim; engine -1
-#   environment  no player attacker; ZDoom writes the victim into %k; engine unchanged
+#   selfkill     damage source is the victim (own rocket, sv_noexit exit, `kill`); engine -1
+#   environment  damage source is NULL (falling, crushers, drowning, damaging floors); ZDoom
+#                writes the victim into %k; engine unchanged
 #   either       OB_DEFAULT: environment when killer == victim, weapon otherwise
 #   unsupported  victim field is not the victim, or credit is not visible in the line
 KEYS = {
-    "OB_SUICIDE": "environment",  # console `kill`; source is NULL, so no frag change
+    "OB_SUICIDE": "selfkill",  # console `kill`: P_DamageMobj(pawn, pawn, pawn, ..., NAME_Suicide)
     "OB_FALLING": "environment",
     "OB_CRUSH": "environment",
-    "OB_EXIT": "environment",
+    "OB_EXIT": "selfkill",  # exit touched with sv_noexit: P_DamageMobj(self, self, self, ..., NAME_Exit)
     "OB_WATER": "environment",
     "OB_SLIME": "environment",
     "OB_LAVA": "environment",
