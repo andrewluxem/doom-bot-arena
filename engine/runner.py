@@ -29,7 +29,7 @@ from tools import extract_map  # noqa: E402
 
 PLACEHOLDER = "engine.bots:PlaceholderBot"
 PERSONALITY = "engine.personality.controller:PersonalityBot"
-MILESTONE_2A = "VEX,HEX,NUL"  # the other five play as placeholders until milestone 2B
+MILESTONE_2A = "VEX,HEX,NUL"  # the 2A trio; since milestone 2B all eight are personalities by default
 
 
 def controllers(sheets, codes, map_data, cache_dir):
@@ -131,7 +131,7 @@ def build(capture, n_tics, sheets, respawn_delay=None):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="Host one 8-bot ViZDoom deathmatch and write a match bundle.")
-    p.add_argument("--iwad", help="IWAD path (default: freedoom2.wad shipped with ViZDoom)")
+    p.add_argument("--iwad", help="IWAD path (default: the Freedoom IWAD shipped with ViZDoom, freedoom1 for ExMy maps)")
     p.add_argument("--map", default="MAP01")
     p.add_argument("--duration-tics", type=int, default=10500,
                    help="displayed match, after the pre-roll; default 10500 = 5 minutes")
@@ -141,8 +141,9 @@ def main(argv=None):
     p.add_argument("--out", default="bundles")
     p.add_argument("--startup-timeout", type=float, default=120)
     p.add_argument("--progress-timeout", type=float, default=60)
-    p.add_argument("--personalities", default=MILESTONE_2A,
-                   help="codes driven by the personality engine; the rest are placeholders (default %(default)s)")
+    p.add_argument("--personalities", default="all",
+                   help="codes driven by the personality engine, or 'all' or 'none'; the rest are placeholders "
+                        "(default %(default)s; 'none' is the separation baseline)")
     args = p.parse_args(argv)
 
     err = preflight()
@@ -150,7 +151,7 @@ def main(argv=None):
         print(f"runner: refusing to run: {err}", file=sys.stderr)
         return 2
     sheets = roster.load()
-    iwad = os.path.abspath(args.iwad or extract_map.default_iwad())
+    iwad = os.path.abspath(args.iwad or extract_map.default_iwad(args.map))
     try:
         map_data = extract_map.extract(iwad, args.map)
     except (OSError, extract_map.WadError) as e:
@@ -163,7 +164,9 @@ def main(argv=None):
     bundle_dir = os.path.join(args.out, match_id)
     os.makedirs(capture_dir)
     log_file = open(os.path.join(capture_dir, "runner.log"), "w", buffering=1)
-    codes = {c.strip().upper() for c in args.personalities.split(",") if c.strip()}
+    spec = args.personalities.strip().lower()
+    codes = ({sh["code"] for sh in sheets} if spec == "all" else set() if spec == "none"
+             else {c.strip().upper() for c in args.personalities.split(",") if c.strip()})
     unknown = codes - {sh["code"] for sh in sheets}
     if unknown:
         print(f"runner: refusing to run: unknown personality codes {sorted(unknown)}", file=sys.stderr)

@@ -12,8 +12,17 @@ DOCKER_RUN = docker run --rm --platform linux/amd64 -v "$(CURDIR)":/repo $(IMAGE
 SEEDS ?= 101 102 103 104 105
 EVAL_OUT ?= bundles/eval-2a
 BOTS ?= VEX,HEX,NUL
+PERSONALITIES ?= VEX,HEX,NUL
 
-.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn match validate eval signatures image docker-test docker-bench docker-match docker-validate docker-eval
+# Milestone 2B: the placeholder baseline per map, and the eight personalities on two maps.
+BASE_MAPS ?= MAP01 MAP10 E1M5
+BASE_SEEDS ?= 201 202 203 204 205
+BASE_OUT ?= bundles/baseline-2b
+EVAL2B_MAPS ?= MAP10 E1M5
+EVAL2B_SEEDS ?= 301 302 303 304 305
+EVAL2B_OUT ?= bundles/eval-2b
+
+.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn match validate eval baseline eval-2b signatures-2b signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b
 
 test:
 	$(PYTHON) -m pytest -q tests
@@ -40,8 +49,26 @@ validate:
 
 # Milestone 2A evaluation: five-minute matches on MAP01 at fixed seeds, then the signature report.
 eval:
-	for s in $(SEEDS); do $(PYTHON) -m engine.runner --duration-tics 10500 --seed $$s --out $(EVAL_OUT) || exit 1; done
+	for s in $(SEEDS); do $(PYTHON) -m engine.runner --duration-tics 10500 --seed $$s --personalities $(PERSONALITIES) --out $(EVAL_OUT) || exit 1; done
 	$(PYTHON) tools/signatures.py --bots $(BOTS) --json $(EVAL_OUT)/signatures.json $(EVAL_OUT)/2*
+
+# Separation baseline: every slot a placeholder, five-minute matches per map; then frags per minute per map.
+baseline:
+	for m in $(BASE_MAPS); do for s in $(BASE_SEEDS); do \
+		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities none --out $(BASE_OUT)/$$m || exit 1; \
+	done; done
+	$(PYTHON) tools/frag_rate.py --json $(BASE_OUT)/frag_rate.json $(BASE_OUT)/*/2*
+
+# All eight personalities; signatures against the baseline for each map (docs/SIGNATURES.md, separation).
+eval-2b:
+	for m in $(EVAL2B_MAPS); do for s in $(EVAL2B_SEEDS); do \
+		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all --out $(EVAL2B_OUT)/$$m || exit 1; \
+	done; done
+	$(MAKE) signatures-2b
+
+signatures-2b:
+	$(PYTHON) tools/frag_rate.py --json $(EVAL2B_OUT)/frag_rate.json $(EVAL2B_OUT)/*/2*
+	$(PYTHON) tools/signatures.py --baseline $(BASE_OUT)/*/2* --json $(EVAL2B_OUT)/signatures.json $(EVAL2B_OUT)/*/2*
 
 signatures:
 	$(PYTHON) tools/signatures.py --bots $(BOTS) $(BUNDLE)
@@ -62,4 +89,10 @@ docker-validate:
 	$(DOCKER_RUN) make validate BUNDLE=$(BUNDLE)
 
 docker-eval:
-	$(DOCKER_RUN) make eval SEEDS="$(SEEDS)" EVAL_OUT=$(EVAL_OUT)
+	$(DOCKER_RUN) make eval SEEDS="$(SEEDS)" EVAL_OUT=$(EVAL_OUT) PERSONALITIES=$(PERSONALITIES) BOTS=$(BOTS)
+
+docker-baseline:
+	$(DOCKER_RUN) make baseline BASE_MAPS="$(BASE_MAPS)" BASE_SEEDS="$(BASE_SEEDS)" BASE_OUT=$(BASE_OUT)
+
+docker-eval-2b:
+	$(DOCKER_RUN) make eval-2b EVAL2B_MAPS="$(EVAL2B_MAPS)" EVAL2B_SEEDS="$(EVAL2B_SEEDS)" EVAL2B_OUT=$(EVAL2B_OUT) BASE_OUT=$(BASE_OUT)

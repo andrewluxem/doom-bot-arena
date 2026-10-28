@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import struct
 import sys
 
@@ -228,9 +229,11 @@ def write_map_json(map_data, path):
         f.write("\n")
 
 
-def default_iwad():
+def default_iwad(map_name="MAP01"):
+    """The Freedoom IWAD shipped with ViZDoom for this map: freedoom1 for ExMy maps, freedoom2 otherwise."""
     import vizdoom
-    return os.path.join(os.path.dirname(vizdoom.__file__), "freedoom2.wad")
+    episodic = re.fullmatch(r"E\dM\d", map_name.upper()) is not None
+    return os.path.join(os.path.dirname(vizdoom.__file__), "freedoom1.wad" if episodic else "freedoom2.wad")
 
 
 def main(argv=None):
@@ -242,7 +245,7 @@ def main(argv=None):
     p.add_argument("--out", default=os.path.join("tools", "out", "map.json"))
     args = p.parse_args(argv)
 
-    iwad = args.iwad or default_iwad()
+    iwad = args.iwad or default_iwad(args.map)
     try:
         m = extract(iwad, args.map, args.skill)
     except (OSError, WadError) as e:
