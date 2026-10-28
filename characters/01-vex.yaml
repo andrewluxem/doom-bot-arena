@@ -1,0 +1,43 @@
+slot: 1
+code: VEX
+name: Vex
+archetype: rusher
+colorset: 0
+
+perception:
+  reaction_time_ms: 150
+  aim_accuracy: 0.65
+  max_turn_deg_per_tic: 14
+
+temperament:
+  aggression: 0.95
+  self_preservation: 0.05
+  engage_health_min: 0
+  preferred_range: [0, 320]
+
+behavior_weights:
+  HUNTING: 1.0
+  ROAMING: 0.6
+  STALKING: 0.0
+  HOLDING_ANGLE: 0.0
+  COLLECTING_ARMOR: 0.1
+  COLLECTING_HEALTH: 0.1
+  FLEEING: 0.0
+
+weapons:
+  allowed: [shotgun, super_shotgun]
+  weights: {super_shotgun: 1.0, shotgun: 0.8}
+
+items:
+  item_timing: false
+  weights: {ammo: 0.4, health: 0.2, armor: 0.1, megasphere: 0.5, berserk: 0.0}
+
+spots: null
+
+signature:
+  - metric: median_engagement_distance
+    op: "<"
+    value: 320
+  - metric: moving_forward_share
+    op: ">"
+    value: 0.6

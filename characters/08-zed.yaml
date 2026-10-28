@@ -1,0 +1,55 @@
+slot: 8
+code: ZED
+name: Zed
+archetype: erratic
+colorset: 7
+
+# ZED re-rolls every value under `ranges` on a timer. Fixed values apply between rolls.
+reroll_interval_s: 20
+reroll_seed_from_match: true   # deterministic per match seed so replays match
+
+perception:
+  reaction_time_ms: 180
+  aim_accuracy: 0.55
+  max_turn_deg_per_tic: 18
+
+temperament:
+  aggression: 0.7
+  self_preservation: 0.2
+  engage_health_min: 0
+  preferred_range: [0, 400]
+
+behavior_weights:
+  HUNTING: 0.8
+  ROAMING: 0.8
+  STALKING: 0.2
+  HOLDING_ANGLE: 0.1
+  COLLECTING_ARMOR: 0.3
+  COLLECTING_HEALTH: 0.3
+  FLEEING: 0.3
+
+ranges:
+  temperament.aggression: [0.2, 1.0]
+  temperament.self_preservation: [0.0, 0.8]
+  behavior_weights.HUNTING: [0.0, 1.0]
+  behavior_weights.ROAMING: [0.0, 1.0]
+  behavior_weights.STALKING: [0.0, 0.6]
+  behavior_weights.FLEEING: [0.0, 0.8]
+
+weapons:
+  allowed: [chainsaw, fist, pistol, shotgun, super_shotgun, chaingun, rocket_launcher, plasma_rifle]
+  weights: {chainsaw: 1.0, shotgun: 0.4, super_shotgun: 0.4, chaingun: 0.3, rocket_launcher: 0.3, plasma_rifle: 0.3, pistol: 0.1, fist: 0.2}
+
+items:
+  item_timing: false
+  weights: {ammo: 0.3, health: 0.3, armor: 0.3, megasphere: 0.5, berserk: 0.5}
+
+spots: null
+
+signature:
+  - metric: behavior_switches_per_minute
+    op: ">"
+    value: 6
+  - metric: chainsaw_damage_share
+    op: ">"
+    value: 0.4

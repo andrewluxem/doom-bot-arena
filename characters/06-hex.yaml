@@ -1,0 +1,49 @@
+slot: 6
+code: HEX
+name: Hex
+archetype: camper
+colorset: 5
+
+perception:
+  reaction_time_ms: 80
+  aim_accuracy: 0.9
+  max_turn_deg_per_tic: 8
+
+temperament:
+  aggression: 0.3
+  self_preservation: 0.7
+  engage_health_min: 0
+  preferred_range: [500, 1500]
+
+behavior_weights:
+  HUNTING: 0.0
+  ROAMING: 0.2
+  STALKING: 0.0
+  HOLDING_ANGLE: 1.0
+  COLLECTING_ARMOR: 0.2
+  COLLECTING_HEALTH: 0.3
+  FLEEING: 0.4
+
+weapons:
+  allowed: [chaingun, pistol]
+  weights: {chaingun: 1.0, pistol: 0.2}
+
+items:
+  item_timing: false
+  weights: {ammo: 0.8, health: 0.4, armor: 0.3, megasphere: 0.3, berserk: 0.0}
+
+spots:
+  mode: sightlines_max
+  hold_label: HOLDING_ANGLE
+  leave_when:
+    - health_below: 30
+    - ammo_empty: true
+    - no_contact_seconds: 90
+
+signature:
+  - metric: stationary_share
+    op: ">"
+    value: 0.7
+  - metric: median_engagement_distance
+    op: ">"
+    value: 500

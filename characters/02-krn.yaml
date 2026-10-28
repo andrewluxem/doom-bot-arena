@@ -1,0 +1,43 @@
+slot: 2
+code: KRN
+name: Kronos
+archetype: tactician
+colorset: 1
+
+perception:
+  reaction_time_ms: 120
+  aim_accuracy: 0.8
+  max_turn_deg_per_tic: 10
+
+temperament:
+  aggression: 0.6
+  self_preservation: 0.8
+  engage_health_min: 50
+  preferred_range: [256, 640]
+
+behavior_weights:
+  HUNTING: 0.6
+  ROAMING: 0.5
+  STALKING: 0.0
+  HOLDING_ANGLE: 0.2
+  COLLECTING_ARMOR: 1.0
+  COLLECTING_HEALTH: 1.0
+  FLEEING: 0.8
+
+weapons:
+  allowed: [rocket_launcher, shotgun, pistol]
+  weights: {rocket_launcher: 1.0, shotgun: 0.6, pistol: 0.1}
+
+items:
+  item_timing: true
+  weights: {ammo: 0.5, health: 0.8, armor: 1.0, megasphere: 1.0, berserk: 0.2}
+
+spots: null
+
+signature:
+  - metric: item_timing_hit_rate   # arrives within 2s of a timed item respawning
+    op: ">"
+    value: 0.5
+  - metric: engagements_started_below_50hp_share
+    op: "<"
+    value: 0.1

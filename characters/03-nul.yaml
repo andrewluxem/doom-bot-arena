@@ -1,0 +1,50 @@
+slot: 3
+code: NUL
+name: "Null"
+archetype: ambusher
+colorset: 2
+
+perception:
+  reaction_time_ms: 100
+  aim_accuracy: 0.85
+  max_turn_deg_per_tic: 12
+
+temperament:
+  aggression: 0.5
+  self_preservation: 0.4
+  engage_health_min: 0
+  preferred_range: [200, 600]   # outside rocket self-splash
+
+behavior_weights:
+  HUNTING: 0.1
+  ROAMING: 0.3
+  STALKING: 1.0
+  HOLDING_ANGLE: 0.0
+  COLLECTING_ARMOR: 0.3
+  COLLECTING_HEALTH: 0.4
+  FLEEING: 0.3
+
+weapons:
+  allowed: [rocket_launcher, shotgun, pistol]
+  weights: {rocket_launcher: 1.0, shotgun: 0.3, pistol: 0.1}
+
+items:
+  item_timing: false
+  weights: {ammo: 0.6, health: 0.4, armor: 0.3, megasphere: 0.4, berserk: 0.0}
+
+spots:
+  mode: sightlines_min_near_traffic
+  hold_label: STALKING
+  fire_only_when_visible_ms: 1000   # fires within 1s of target appearing
+  leave_when:
+    - health_below: 40
+    - no_contact_seconds: 45
+    - ammo_empty: true
+
+signature:
+  - metric: frags_within_1s_of_visibility_share
+    op: ">"
+    value: 0.5
+  - metric: distance_traveled_rank   # 1 = least of the 8
+    op: "<="
+    value: 2

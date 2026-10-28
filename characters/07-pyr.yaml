@@ -1,0 +1,44 @@
+slot: 7
+code: PYR
+name: Pyre
+archetype: flanker
+colorset: 6
+
+perception:
+  reaction_time_ms: 140
+  aim_accuracy: 0.7
+  max_turn_deg_per_tic: 12
+
+temperament:
+  aggression: 0.7
+  self_preservation: 0.5
+  engage_health_min: 30
+  preferred_range: [64, 256]
+  flank: true   # path scoring penalizes approaching inside the target's view cone
+
+behavior_weights:
+  HUNTING: 0.8
+  ROAMING: 0.5
+  STALKING: 0.2
+  HOLDING_ANGLE: 0.0
+  COLLECTING_ARMOR: 1.0
+  COLLECTING_HEALTH: 0.5
+  FLEEING: 0.4
+
+weapons:
+  allowed: [super_shotgun, shotgun, pistol]
+  weights: {super_shotgun: 1.0, shotgun: 0.5, pistol: 0.1}
+
+items:
+  item_timing: false
+  weights: {ammo: 0.4, health: 0.5, armor: 1.0, megasphere: 0.8, berserk: 0.0}
+
+spots: null
+
+signature:
+  - metric: approach_outside_view_cone_share   # first shot fired from behind or beside the target
+    op: ">"
+    value: 0.5
+  - metric: armor_pickups_rank   # 1 = most of the 8
+    op: "<="
+    value: 2
