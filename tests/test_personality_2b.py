@@ -181,9 +181,9 @@ def test_reach_map_is_reused_briefly_and_nearby_only():
     b._reach(100, 0.0, 0.0)
     b._reach(110, 50.0, 0.0)  # within REACH_TTL and REACH_MOVE: reused
     assert len(calls) == 1
-    b._reach(120, 200.0, 0.0)  # moved too far
-    b._reach(121, 200.0, 0.0)
+    b._reach(120, 500.0, 0.0)  # moved too far
+    b._reach(121, 500.0, 0.0)
     b.live = {5: 128}  # a remote door opened
-    b._reach(122, 200.0, 0.0)
-    b._reach(122 + C.REACH_TTL, 200.0, 0.0)  # too old
+    b._reach(122, 500.0, 0.0)
+    b._reach(122 + C.REACH_TTL, 500.0, 0.0)  # too old
     assert len(calls) == 4

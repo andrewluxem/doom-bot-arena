@@ -63,7 +63,7 @@ GOAL_TIMEOUT = 20 * TICRATE
 LIFT_GIVE_UP = 8 * TICRATE
 BLOCK_TICS = 15 * TICRATE
 REACH_TTL = TICRATE  # a path-cost map is reused this long while the bot stays within REACH_MOVE of where it
-REACH_MOVE = 128     # was computed and doors and lifts are unchanged: one full search is ~90 ms on MAP10
+REACH_MOVE = 384     # was computed and doors and lifts are unchanged: one full search is ~90 ms on MAP10
 RUN_SPEED = 15.0  # units per tic for planning arrivals; a running player tops out near 16.7
 ITEM_VIEW = 1536  # how far an item-timing bot checks item places it can see
 ITEM_FOV = 42.0  # half-angle, inside the 45-degree half view so an item at the edge is not misread
@@ -82,6 +82,7 @@ RETREAT_PROBE = 96
 TRAPPED_NODES = 600  # E1M5's exit room is 291 nav nodes and MAP10's teleporter pocket 164; MAP10's
                      # smaller arena, 1634, is a place to fight in, not a trap
 TRAPPED_WAIT = 3 * TICRATE
+TRAPPED_RECHECK = 5 * TICRATE  # pockets are sinks: a bot outside one at spawn enters one only by teleporting
 
 
 def wrap180(a):
@@ -220,7 +221,7 @@ class PersonalityBot:
                 ln = math.hypot(l["x2"] - l["x1"], l["y2"] - l["y1"]) or 1.0
                 nx, ny = (l["y2"] - l["y1"]) / ln, -(l["x2"] - l["x1"]) / ln  # toward the front (right) side
                 self.exits.append((l["id"], (mx + 40 * nx, my + 40 * ny), (mx, my)))
-        self.spawned_at, self.suicide_sent = 0, False
+        self.spawned_at, self.suicide_sent, self.trapped_check = 0, False, None
         self.region_reach = {}  # nav region id -> nodes reachable from it, every door open
         self.attractors = ([(s["x"], s["y"], node(s["x"], s["y"])) for s in map_data["deathmatch_starts"]]
                            + [(w[1], w[2], w[3]) for w in self.weapon_things])
@@ -306,7 +307,7 @@ class PersonalityBot:
         self.goal, self.path, self.spot, self.at_spot = None, None, None, False
         self.prev, self.trail, self.stuck_count = None, [], 0
         self.scores, self.berserk, self.wait_item = None, False, None
-        self.spawned_at, self.suicide_sent = t, False
+        self.spawned_at, self.suicide_sent, self.trapped_check = t, False, None
 
     def _on_death(self, t):
         self._close_spot(t - 1)
@@ -686,12 +687,17 @@ class PersonalityBot:
                 best = (reach[it["node"]], (it["x"], it["y"]))
         return (best[1], "item:lure") if best else (None, None)
 
-    def _trapped(self, x, y):
+    def _trapped(self, x, y, t=None):
         """In a pocket: a nav region other than the largest, with fewer than TRAPPED_NODES nodes reachable
-        from it on the static graph with every door open (a closed remote door is not a trap)."""
+        from it on the static graph with every door open (a closed remote door is not a trap). Checked at
+        most every TRAPPED_RECHECK within a life."""
+        if t is not None and self.trapped_check is not None and t - self.trapped_check[0] < TRAPPED_RECHECK:
+            return self.trapped_check[1]
         n = self.graph.nearest(x, y)
         rid = self.graph.region_id[n] if n is not None else 0
         if rid == 0:
+            if t is not None:
+                self.trapped_check = (t, False)
             return False
         if rid not in self.region_reach:
             seen, stack = {n}, [n]
@@ -702,21 +708,24 @@ class PersonalityBot:
                         seen.add(v)
                         stack.append(v)
             self.region_reach[rid] = len(seen)
-        return self.region_reach[rid] < TRAPPED_NODES
+        trapped = self.region_reach[rid] < TRAPPED_NODES
+        if t is not None:
+            self.trapped_check = (t, trapped)
+        return trapped
 
     def _suicide_now(self, t, x, y):
         """Trapped in a pocket without a reachable exit switch, nobody in view: respawn by the console suicide."""
         if (self.suicide_sent or self.perc.visible() or t - self.spawned_at <= TRAPPED_WAIT
                 or (self.goal_tag or "").startswith("exit:")):
             return False
-        if not self._trapped(x, y) or self._exit_goal(t, x, y)[0] is not None:
+        if not self._trapped(x, y, t) or self._exit_goal(t, x, y)[0] is not None:
             return False
         self.suicide_sent = True
         return True
 
     def _exit_goal(self, t, x, y):
         """In a pocket the bot cannot leave: the approach point of an exit switch it can reach."""
-        if not self._trapped(x, y):
+        if not self._trapped(x, y, t):
             return None, None
         reach = self._reach(t, x, y)
         for line_id, (ax, ay), _ in self.exits:
