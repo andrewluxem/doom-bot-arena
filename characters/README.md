@@ -10,7 +10,7 @@ One YAML file per bot. The engine loads all eight; a personality is only these d
   - `retreat_distance`: map units, or `null`. Closer than this to its target, the bot backs straight off on the nearest walkable heading (within 90 degrees of directly away) while it keeps aiming and firing: the retreat band.
   - `flank`: `true` or `false`. Paths toward a known enemy cost four times as much inside that enemy's 90-degree view cone (its facing when last seen, within 1024 units). The approach goal moves 160 units behind the enemy, and in a fight the bot strafes out of the cone the short way.
 - `behavior_weights`: multipliers on the utility score of each behavior. 0 disables it. The label shown to viewers is the behavior name.
-- `weapons.allowed`: the only weapons the bot may select or fire. `weapons.weights`: preference when several are held. A bot holding no usable weapon rated above half its best goes to fetch one. Melee weapons (fist, chainsaw) fire only within reach.
+- `weapons.allowed`: the only weapons the bot may select or fire. `weapons.weights`: preference when several are held. A bot holding no usable weapon rated at least half its best goes to fetch one. With no enemy to look for, it also fetches any allowed weapon rated above everything it holds (ASH's chainsaw, ORB's plasma rifle). Melee weapons (fist, chainsaw) fire only within reach.
 - `items.weights`: pickup utility by item class.
   - `berserk` at 0.5 or more draws the bot to a berserk pack while it has none. A berserk triples the fist's weapon fitness until the bot dies, since berserk multiplies fist damage by 10.
   - `item_timing: true` means the bot tracks respawn timers and routes to items as they reappear.

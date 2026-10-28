@@ -382,8 +382,7 @@ class PersonalityBot:
 
         usable = [w for w in self.resolved if self.armory.usable(w, v)]
         has_usable = bool(usable)
-        # armed: holds a weapon its sheet rates above half its best (a fist at 0.5 under a chainsaw at 1.0 is not)
-        armed = any(d.weapon_weights.get(w, 0) > 0.5 * self.best_weight for w in usable)
+        armed = any(d.weapon_weights.get(w, 0) >= 0.5 * self.best_weight for w in usable)
         choice, _ = fuzzy.choose(usable, d.weapon_weights, dist if dist is not None else d.desired_range,
                                  lambda w: self.armory.ammo(w, v), current=self.weapon_choice, berserk=self.berserk)
         self.weapon_choice = choice
@@ -504,15 +503,15 @@ class PersonalityBot:
     def _choose_goal(self, t, v, x, y, armed, usable, latest, prev_behavior):
         b = self.behavior
         goal, tag = None, None
-        if b not in ("IN_COMBAT", "FLEEING") and not armed:
+        if not self.perc.visible() and t - self.spawned_at > TRAPPED_WAIT:
+            goal, tag = self._exit_goal(t, x, y)  # a pocket it cannot leave: nothing else there matters
+        if goal is None and b not in ("IN_COMBAT", "FLEEING") and not armed:
             goal, tag = self._weapon_goal(t, x, y)
         if goal is None and b not in ("IN_COMBAT", "FLEEING") and usable and self._ammo_low(v, usable):
             goal, tag = self._item_goal(t, x, y, names=set(sum((AMMO_ITEMS.get(w, ()) for w in usable), ())) | {"Backpack"})
         if goal is None and b in ("ROAMING", "HUNTING") and (b == "ROAMING" or latest is None
                                                              or t - latest.last_seen > RECENT_CONTACT):
             goal, tag = self._lure_goal(t, x, y)
-        if goal is None and not self.perc.visible() and t - self.spawned_at > TRAPPED_WAIT:
-            goal, tag = self._exit_goal(t, x, y)
         if goal is None:
             if b == "IN_COMBAT":
                 if self.target is not None and not self.target.visible:
@@ -566,8 +565,14 @@ class PersonalityBot:
         return penalty
 
     def _idle_goal(self, t, x, y, tag):
-        """With no enemy to look for: an item-timing bot runs its item circuit; any other bot (or a timer with
-        nothing due) keeps its current wander goal until GOAL_TIMEOUT, then draws a new one."""
+        """With no enemy to look for: fetch a better allowed weapon than any held; then an item-timing bot runs
+        its item circuit; any other bot (or a timer with nothing due) keeps its current wander goal until
+        GOAL_TIMEOUT, then draws a new one."""
+        held_best = max((self.d.weapon_weights.get(w, 0) for w in self.armory.owned if w in self.resolved), default=0.0)
+        if held_best < self.best_weight:
+            goal, upgrade = self._weapon_goal(t, x, y, better_than=held_best)  # a better weapon first
+            if goal is not None:
+                return goal, upgrade
         if self.d.item_timing:
             held = self._item_at(self.goal) if self.goal_tag == "item:timed" else None
             if held is not None and pending(held, t) and t - self.goal_set_at < GOAL_TIMEOUT + TIMED_WAIT_MAX:
@@ -579,9 +584,11 @@ class PersonalityBot:
             return self.goal, tag
         return self._random_attractor(t, x, y), tag
 
-    def _weapon_goal(self, t, x, y):
-        want = [w for w in self.resolved if self.d.weapon_weights.get(w, 0) > 0.5 * self.best_weight
-                and w not in self.armory.owned]
+    def _weapon_goal(self, t, x, y, better_than=None):
+        """The nearest reachable weapon the bot wants: one its sheet rates at least half its best, or with
+        `better_than`, any allowed weapon rated above that."""
+        floor = 0.5 * self.best_weight if better_than is None else better_than + 1e-9
+        want = [w for w in self.resolved if self.d.weapon_weights.get(w, 0) >= floor and w not in self.armory.owned]
         reach = self._reach(t, x, y)
         best = None
         for name, wx, wy, n in self.weapon_things:
@@ -738,6 +745,13 @@ class PersonalityBot:
             move = self._follow(t, x, y, action)
             if move is not None and self.spot is not None and self.goal_tag == f"spot:{self.spot['id']}":
                 move, run = self._arrive(x, y, move)
+            elif (move is None and self.goal is not None and self.goal_tag in ("weapon", "item:health", "item:armor",
+                                                                               "item:ammo", "item:lure")
+                  and math.hypot(self.goal[0] - x, self.goal[1] - y) <= ARRIVE):
+                # on a pickup that has not been picked up: Doom picks up only on a move, and a player
+                # spawned on top of a weapon would otherwise stand on it for good
+                move, run = ang + (90.0 if (t // 4) % 2 else -90.0), False
+                face = ang if face is None else face
 
         if t < self.unstick_until:
             move = (ang + 90.0 * self.unstick_dir) if move is None else move + 90.0 * self.unstick_dir

@@ -147,7 +147,16 @@ def test_melee_fires_only_in_reach_and_berserk_prefers_the_fist():
     assert fuzzy.choose(["fist", "chainsaw"], ash, 40, inf, berserk=True)[0] == "fist"
 
 
-def test_a_fist_at_half_weight_does_not_count_as_armed():
-    d = C.Dials(SHEETS["ASH"])
-    best = max(d.weapon_weights.values())
-    assert not d.weapon_weights["fist"] > 0.5 * best
+def test_idle_bots_fetch_a_better_weapon_than_any_held():
+    b = C.PersonalityBot.__new__(C.PersonalityBot)
+    b.d = C.Dials(SHEETS["ASH"])
+    b.resolved, b.best_weight = ["chainsaw", "fist"], 1.0
+    b.armory = type("Armory", (), {"owned": {"fist", "pistol"}})()
+    b.weapon_things = [("chainsaw", 500.0, 0.0, 7), ("shotgun", 100.0, 0.0, 8)]
+    b._reach = lambda t, x, y: {7: 600.0, 8: 120.0}
+    b.goal = b.goal_tag = None
+    assert b._idle_goal(0, 0.0, 0.0, "roam") == ((500.0, 0.0), "weapon")  # fist 0.5 held, chainsaw 1.0 wanted
+    b.armory.owned.add("chainsaw")
+    b.attractors, b.rng = [(9.0, 9.0, 8)], random.Random(1)
+    b.d.item_timing = False
+    assert b._idle_goal(0, 0.0, 0.0, "roam")[1] == "roam"  # nothing better to fetch
