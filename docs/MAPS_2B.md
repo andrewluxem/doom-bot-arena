@@ -53,3 +53,13 @@ On the static map (map.json heights, so floors that W1/S1 lines lower during pla
 - **Placeholders.** In the MAP10 baseline (seed 201), three of the eight placeholders spent most of the match in the 1,634-node region. They crossed between regions only by respawning. Placeholders that spawn in E1M5's exit room stay there until they die, usually on the exit switch, which they press at random.
 - **Personalities** keep to the region they spawn in. A bot spawned into a pocket (fewer than 600 nodes reachable, every door open) uses the pocket's exit switch once no enemy is in view, or the console `kill` where there is none (MAP10's pocket). It then respawns elsewhere. Both count as suicides.
 - **Level-start spawns are random** (MATCH_FORMAT section 2), so a bot starts in a pocket in roughly half the matches on each map.
+
+**Placeholder frag rate** (`make docker-baseline`, five five-minute matches per map, all eight slots placeholders, seeds 201–205; E1M5 seed 206 replaced 202, whose capture failed twice on the host player-name fault):
+
+| map | frags per minute, all eight bots | range over matches | suicides in 5 matches |
+|---|---|---|---|
+| MAP01 | 11.92 | 11.00–13.40 | 14 |
+| MAP10 | 2.12 | 1.00–2.80 | 4 |
+| E1M5 | 6.88 | 6.40–7.60 | 14 |
+
+MAP10's rate is a sixth of MAP01's: the map is large and split, and placeholders roaming at random rarely meet. Kill-based metrics on MAP10 rest on few kills per bot.
