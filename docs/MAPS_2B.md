@@ -54,6 +54,15 @@ On the static map (map.json heights, so floors that W1/S1 lines lower during pla
 - **Personalities** keep to the region they spawn in. A bot spawned into a pocket (fewer than 600 nodes reachable, every door open) uses the pocket's exit switch once no enemy is in view, or the console `kill` where there is none (MAP10's pocket). It then respawns elsewhere. Both count as suicides.
 - **Level-start spawns are random** (MATCH_FORMAT section 2), so a bot starts in a pocket in roughly half the matches on each map.
 
+**Weapons a bot in the largest region can reach.** Since spots version 4, a thing counts as reachable only from a node that can walk onto it, or touch it by Doom's pickup rule (`NavGraph.thing_node`).
+- **MAP10's plasma rifles cannot be reached from it.** One sits on a platform that is a region of its own; until v4 it snapped to a node 49 units below, and ORB chased it all match. The other is in the teleporter pocket. ORB's best reachable weapon there is the chaingun.
+- **E1M5's rocket launchers cannot be reached from it.**
+  - One is in the exit room.
+  - The other, at (1056, −672), is in a 327-node region whose way up is an SR lift (sector 178). The map data stores that lift raised, floor and ceiling both 144, so the graph has no node on it.
+  - Placeholders reached that launcher in 2 of the 5 baseline matches.
+  - KRN and NUL fight with the shotgun on E1M5.
+- **On MAP01**, the touch rule restores the rocket launcher at (2088, −224), 32 units up a ledge and picked up from below. The chainsaw (1320, 704) and one blue armor still have no node.
+
 **Placeholder frag rate** (`make docker-baseline`, five five-minute matches per map, all eight slots placeholders, seeds 201–205; E1M5 seed 206 replaced 202, whose capture failed twice on the host player-name fault):
 
 | map | frags per minute, all eight bots | range over matches | suicides in 5 matches |
