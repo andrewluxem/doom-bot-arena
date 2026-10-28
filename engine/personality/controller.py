@@ -198,7 +198,7 @@ class PersonalityBot:
         if self.d.spot_mode:
             req = [(self.d.spot_mode, self.d.rmin, self.d.rmax)]
             self.spot_cands = spotlib.table(map_data, cache_dir, req, self.graph)["candidates"][self.d.spot_mode]
-        node = lambda x, y: self.graph.nearest(x, y, max_dist=128, need_clear=False)
+        node = self.graph.thing_node  # None for a thing no node can walk to: never a goal
         self.weapon_things = [(w["name"], w["x"], w["y"], node(w["x"], w["y"]))
                               for w in map_data["weapons"] if w["in_deathmatch"]]
         # back: earliest tic the item can be there; back_hi: latest; seen: last tic it was seen in place
@@ -208,8 +208,8 @@ class PersonalityBot:
         if self.d.item_timing:
             self.sight = LineOfSight(map_data)
             for it in self.items:
-                n = it["node"]
-                it["z"] = self.graph.floor[self.graph.nodes[n][2]] if n is not None else 0.0
+                s = self.graph.geo.sector_at(it["x"], it["y"])
+                it["z"] = self.graph.floor[s] if s is not None else 0.0
         self.wait_item = None  # the item a timing bot is waiting at for its respawn
         self.lures = [it for it in self.items if it["class"] in LURE_CLASSES
                       and self.d.item_weights.get(it["class"], 0.0) >= LURE_WEIGHT]

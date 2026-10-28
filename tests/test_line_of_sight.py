@@ -41,3 +41,22 @@ def test_near_shared_line():
     assert geo.near_shared_line(110, 0, 0, 1, 16) and geo.near_shared_line(110, 0, 1, 0, 16)
     assert not geo.near_shared_line(120, 0, 0, 1, 16)
     assert not geo.near_shared_line(110, 0, 0, 2, 16)  # 0 and 2 share no line
+
+
+def test_thing_node_uses_doom_pickup_rule():
+    """A thing on a 32-unit ledge is picked up from below by touch; one on a 64-unit ledge is not."""
+    import math
+    from engine.personality import nav
+    g = nav.NavGraph.__new__(nav.NavGraph)
+    from engine.geometry import Grid
+    g.nodes, g.region_id = [(0.0, 0.0, 0), (20.0, 0.0, 0)], [0, 0]
+    g.floor = [0, 32, 64]
+    g.node_grid = Grid({"min_x": -100, "min_y": -100, "max_x": 200, "max_y": 100}, 64)
+    for i, (x, y, _) in enumerate(g.nodes):
+        g.node_grid.add_box(i, x, y, x, y)
+    g.move_check = lambda p, q: None  # nothing can walk onto the ledge
+    g.lines_near = lambda *a: []
+    g.geo = type("Geo", (), {"sector_at": lambda self, x, y: 1})()
+    assert g.thing_node(40.0, 0.0) == 1  # 20 units from node 1, floor 32 above: touched
+    g.geo = type("Geo", (), {"sector_at": lambda self, x, y: 2})()
+    assert g.thing_node(40.0, 0.0) is None  # 64 above: out of reach

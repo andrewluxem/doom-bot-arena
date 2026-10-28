@@ -32,7 +32,7 @@ from engine import items as itemfacts
 from engine.geometry import EYE_HEIGHT
 from engine.personality import nav
 
-VERSION = 3
+VERSION = 4
 ROUTE_RADIUS = 256.0
 RAYS = 72
 RAY_MAX = 2048.0
@@ -88,7 +88,7 @@ class Sight:
 def routes(graph):
     """Node lists of the shortest paths from every deathmatch start to every weapon and timed item."""
     m = graph.geo.m
-    near = lambda x, y: graph.nearest(x, y, max_dist=128, need_clear=False)
+    near = graph.thing_node
     starts = sorted({near(s["x"], s["y"]) for s in m["deathmatch_starts"]} - {None})
     goals = sorted(({near(w["x"], w["y"]) for w in m["weapons"] if w["in_deathmatch"]}
                     | {near(i["x"], i["y"]) for i in m.get("items", []) if i["in_deathmatch"] and i["name"] in itemfacts.TIMED})

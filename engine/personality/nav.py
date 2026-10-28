@@ -54,6 +54,7 @@ LOCKED_DOORS = {26, 27, 28, 32, 33, 34, 99, 133, 134, 135, 136, 137}
 LIFTS = {10, 21, 62, 88, 120, 121, 122, 123}
 TELEPORTS = {39, 97}  # W1 and WR teleport; 125 and 126 teleport monsters only, so players walk across them
 MIN_REGION = 64
+TOUCH = 36  # player radius 16 + pickup radius 20: Doom touches boxes
 USABLE_KINDS = {"walk", "door", "remote_door", "teleport", "lift"}
 LIFT_COST = 160  # the platform takes about 3 s to come round
 TELEPORT_APPROACH = 72
@@ -365,6 +366,35 @@ class NavGraph:
             if fallback is None and cands:
                 fallback = min(cands)[1]
         return fallback
+
+    def thing_node(self, x, y, max_dist=128):
+        """Where a bot stands to pick up a thing at (x, y): the nearest node (of the largest region if one
+        qualifies) that can walk onto it, or touch it by Doom's pickup rule (boxes within 16 + 20 units, the
+        thing's floor 8 below to 56 above the player's, no wall between). The walk is checked from the node,
+        since dropping off a ledge is a move and climbing one is not. None if no node qualifies.
+        Until spots version 4 things snapped to the nearest node whatever lay between: MAP10's plasma rifle at
+        (-2008, 1036), on a platform that is a region of its own, snapped to a main-region node 49 units below."""
+        s = self.geo.sector_at(x, y)
+        fz = self.floor[s] if s is not None else None
+        cands = sorted((math.hypot(self.nodes[i][0] - x, self.nodes[i][1] - y), i)
+                       for i in self.node_grid.query_box(x - max_dist, y - max_dist, x + max_dist, y + max_dist))
+        for main_only in (True, False):
+            for d, i in cands:
+                if d > max_dist:
+                    break
+                nx, ny, ns = self.nodes[i]
+                if main_only and self.region_id[i] != 0:
+                    continue
+                if d < 1 or self.move_check((nx, ny), (x, y)) is not None:
+                    return i
+                if (fz is not None and abs(nx - x) < TOUCH and abs(ny - y) < TOUCH
+                        and -8 <= fz - self.floor[ns] <= PLAYER_HEIGHT and not self._wall_between((nx, ny), (x, y))):
+                    return i
+        return None
+
+    def _wall_between(self, p, q):
+        x0, y0, x1, y1 = min(p[0], q[0]), min(p[1], q[1]), max(p[0], q[0]), max(p[1], q[1])
+        return any(ln.solid and segments_cross(p, q, ln.a, ln.b) for ln in self.lines_near(x0, y0, x1, y1, 1))
 
     def astar(self, start, goal, live=None, allow=USABLE_KINDS, blocked=(), penalty=None):
         """Node path start..goal, or None. remote_door edges need the sector open in `live`;
