@@ -159,11 +159,9 @@ def check_rows(rows, n_tics, m=None, map_data=None):
 
 
 def check_rows_v3(rows):
-    """Damage counters (section 5): cumulative over the match, so never falling; and over the match
-    the damage all players dealt to other players is at most the damage all players took. (Per tic
-    this does not hold: about 2.5% of dealt damage has no matching damage taken in the same tic.)"""
+    """Damage counters (section 5): non-negative integers, cumulative over the match, so never falling.
+    Dealt and taken do not balance, per tic or over the match (section 5, open finding)."""
     p, last = [], {}
-    dealt = taken = 0
     for r in rows:
         where = f"tic {r['tic']} slot {r['slot']}"
         vals = (r["hitcount"], r["damagecount"], r["damage_taken"])
@@ -174,11 +172,7 @@ def check_rows_v3(rows):
         if prev is not None:
             if any(a < b for a, b in zip(vals, prev)):
                 p.append(f"{where}: a damage counter fell from {prev} to {vals}")
-            dealt += vals[1] - prev[1]
-            taken += vals[2] - prev[2]
         last[r["slot"]] = vals
-    if dealt > taken:
-        p.append(f"over the match players dealt {dealt} damage to others but took only {taken}")
     return p
 
 

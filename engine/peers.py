@@ -19,10 +19,12 @@ Timing, with the barrier at the end of every tic ordering the steps:
 - A request posted at tic t is answered during tic t + 1: each process answers right after
   its get_state, before its controller acts.
 - The asker reads the answer at tic t + 2.
-- Answers are cached per label object id, so only a newly seen player waits two tics for its
-  name. ViZDoom can give a new actor an id an old one had (seen as a dead player named
-  again in one 2A evaluation match), so a cached name is asked again every VERIFY_TICS (4 tics).
-  If nobody answers, it is dropped, and a corpse's id is dropped as soon as it is seen.
+- Answers are cached per label object id while the label stays in view. ViZDoom can give a
+  new actor an id an old one had: 2A evaluation matches named players who had been dead for
+  over a second. So a name is used only while its label has been seen every tic without a
+  jump; a label that reappears after a gap, or moves more than JUMP units in a tic, waits for
+  a fresh answer like a new one. Cached names are also asked again every VERIFY_TICS and
+  dropped if nobody answers, and a corpse's id is dropped as soon as it is seen.
 
 Labels report an actor's position at its own tic or the one before, sampled slightly apart
 from the game variables (probed on 1.3.2: 81% equal the previous tic's position exactly, the
@@ -40,6 +42,7 @@ ANS_FIELDS = 2  # slot, distance
 MATCH_RADIUS = 20.0
 NO_ANSWER = 1e9
 VERIFY_TICS = 4  # a reused id keeps a wrong name at most this plus the two-tic answer delay
+JUMP = 64.0  # more than a player can move in a tic
 
 
 def _req(parity, asker, i):
@@ -104,6 +107,7 @@ class IdentityReader:
         self.a, self.slot = array, slot
         self.known = {}  # label object id -> slot
         self.checked = {}  # label object id -> tic its name was last asked
+        self.seen = {}  # label object id -> (tic, x, y) it was last in this process's labels
         self.posted = {}  # tic -> [object id per request index]
 
     def identify(self, t, labels):
@@ -124,6 +128,10 @@ class IdentityReader:
             self.a[_req(p, self.slot, i) + 2] = 0.0
         out, post = {}, []
         for oid, x, y in labels:
+            last = self.seen.get(oid)
+            if last is None or t - last[0] > 1 or math.hypot(x - last[1], y - last[2]) > JUMP:
+                self.known.pop(oid, None)  # out of view or jumped: possibly another actor now
+            self.seen[oid] = (t, x, y)
             out[oid] = self.known.get(oid)
             stale = t - self.checked.get(oid, -VERIFY_TICS) >= VERIFY_TICS
             if (out[oid] is None or stale) and len(post) < MAX_LABELS:
@@ -139,6 +147,7 @@ class IdentityReader:
         for oid in oids:
             self.known.pop(oid, None)
             self.checked.pop(oid, None)
+            self.seen.pop(oid, None)
 
 
 class NoIdentity:

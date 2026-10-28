@@ -150,3 +150,14 @@ def test_a_reused_label_id_is_renamed_or_dropped():
     assert results[30] == {77: 2}
     assert results[-1] == {77: 5}, results[-1]
     assert all(r[77] in (None, 5) for r in results[40 + peers.VERIFY_TICS + 3:])
+
+
+def test_a_label_back_in_view_waits_for_a_fresh_name():
+    """A cached name is not trusted across a gap: the id may belong to another actor by then."""
+    positions = {1: lambda t: (0.0, 0.0), 2: lambda t: (300.0, 40.0), 5: lambda t: (600.0, 80.0)}
+    # label 77 is slot 2 until tic 30, out of view for 10 tics, then reappears where slot 5 is
+    labels = lambda t: [(77, 300.0, 40.0)] if t < 30 else [] if t < 40 else [(77, 600.0, 80.0)]
+    _, results = run(50, labels, positions)
+    assert results[29] == {77: 2}
+    assert results[40] == {77: None} and results[41] == {77: None}, (results[40], results[41])
+    assert results[42] == {77: 5}

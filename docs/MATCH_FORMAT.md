@@ -76,7 +76,7 @@ What a bot may know. Tests enforce the identity rule; review enforces the rest.
   - Only `engine/personality/perception.py` may query it, and only to name a `DoomPlayer` label present in the current tic's labels buffer. Nothing may use it for the position of a player who is not in that buffer.
   - `engine/player.py` creates each process's reader and writer and runs the writer, and `engine/match.py` allocates the table. No other module imports `engine/peers.py`.
   - `tests/test_peers.py` checks that a process reads only its own request and answer rows, that no answer names a slot absent from its labels, that a player's position never reaches the table, and the import and call rule (`make test`).
-- **Protocol.** A label a process cannot name yet is posted at tic `t`. Every other process compares open requests with its own position at the previous two tics and answers within 20 units: labels report an actor's position at its own tic or the one before (81% exactly the previous tic, probed on 1.3.2). The asker reads the answer at tic `t + 2` and caches it per label object id. So `target_slot` for a newly seen player starts two tics after the label first appears. ViZDoom can give a new actor an id an old actor had: two evaluation matches named a player dead for over a second. So every cached name is asked again every 4 tics and dropped if nobody answers, a corpse label drops its id at once, and a contact's name always mirrors the latest answer.
+- **Protocol.** A label a process cannot name yet is posted at tic `t`. Every other process compares open requests with its own position at the previous two tics and answers within 20 units: labels report an actor's position at its own tic or the one before (81% exactly the previous tic, probed on 1.3.2). The asker reads the answer at tic `t + 2` and caches it per label object id. So `target_slot` for a newly seen player starts two tics after the label first appears. ViZDoom can give a new actor an id an old actor had: two evaluation matches named a player dead for over a second. So a name is used only while its label has been seen every tic without a jump of more than 64 units; a label that reappears waits for a fresh answer. Names are also asked again every 4 tics and dropped if nobody answers, a corpse label drops its id at once, and a contact's name always mirrors the latest answer.
 
 ## 3. Time contract
 
@@ -204,7 +204,7 @@ Each process writes only its own slot's rows.
 - `damage_taken` counts all of them. `damagecount` and `hitcount` count only damage this player dealt to another player: its own splash is in its `damage_taken` and nowhere else.
 - A barrel's blast counts for the player who set the barrel off: in the controlled bench's barrel stage, the shooter's `damagecount` rose 324 over 3 hits at the blast tic, 128 of it the staged victim's.
 - The counter moves at the tic the damage lands: for a rocket, at impact, not at the shot.
-- **Open finding.** In the five milestone 2A evaluation matches, 1,300 of 51,036 damage points dealt (2.5%, in 32 tics) were matched by no damage taken, and no health change, by any player in the same tic. Only half of those tics had a player under spawn protection; the cause is not identified. Match totals still satisfy dealt ≤ taken.
+- **Open finding: dealt and taken do not balance.** In five evaluation matches, 1,300 of 51,036 damage points dealt (2.5%, in 32 tics) were matched by no damage taken, and no health change, by any player in the same tic. Only half of those tics had a player under spawn protection; the cause is not identified. In one later match the total dealt to others (8,228) even exceeded the total taken (8,132). Metrics read a player's own counters only, and `approach_outside_view_cone_share` requires a matching hit on the target, so they are unaffected.
 
 **Target identity** follows the fairness rule in section 2a. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
 
@@ -322,7 +322,7 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
   - `target_slot` is `null` or another slot, only on alive rows, and that slot was alive at some tic in the last 35.
   - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point, except within 1.5 units of a sector boundary (the validator prints how many such rows it allowed).
   - The scoreboard is off for every slot, every bot has a `controller` and `weapons_resolved`, and `spots.json` candidates and chosen spots are well formed.
-- **Schema 3 fields.** The damage counters are non-negative integers that never fall. Over the match, the damage all players dealt to other players is at most the damage all players took.
+- **Schema 3 fields.** The damage counters are non-negative integers that never fall. Dealt and taken are not checked against each other: they do not balance (section 5).
 - **Events.** Every death event's `source` re-parses to the same event. Event counts match.
 - **Pairing.**
   - Every `alive` true→false in a slot's rows has exactly one death event for that slot at that tic.
