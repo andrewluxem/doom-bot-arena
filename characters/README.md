@@ -11,7 +11,7 @@ One YAML file per bot. The engine loads all eight; a personality is only these d
 - `weapons.allowed`: the only weapons the bot may select or fire. `weapons.weights`: preference when several are held.
 - `items.weights`: pickup utility by item class. `item_timing: true` means the bot tracks respawn timers and routes to items as they reappear.
 - `spots`: for stationary styles. `mode` is `sightlines_max` (perch) or `sightlines_min_near_traffic` (ambush). `leave_when` lists conditions that break the hold.
-- `signature`: the metrics that prove the personality, measured from tics.jsonl. Acceptance is meeting them in 80% of matches.
+- `signature`: the metrics that prove the personality, measured from tics.jsonl. Each item is `metric`, `op`, `value` and `gate`. Acceptance is meeting the gating items (`gate: true`, the default) in 80% of matches. An item may gate only if it separates the personality from the placeholders in the same evaluation (docs/SIGNATURES.md, separation). Otherwise it is `gate: false`: reported, but not part of acceptance.
 
 ## Weapon names to ViZDoom slots (Doom II / Freedoom Phase 2)
 

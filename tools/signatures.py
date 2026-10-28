@@ -3,10 +3,14 @@
     python3 tools/signatures.py bundles/<id> [bundles/<id> ...] [--bots VEX,HEX,NUL] [--compare] [--json out.json]
 
 Every metric is computed for all eight bots, so ranks are defined. Each bot is then
-checked against the thresholds in its own characters/*.yaml signature block. With
-several bundles, a summary counts the matches in which each bot met its whole signature.
---compare also prints every reported bot's metrics for all eight bots, to show how far a
-personality stands from the placeholders.
+checked against the thresholds in its own characters/*.yaml signature block. Items marked
+`gate: false` are descriptive: reported, never part of whether the signature is met.
+
+A summary counts the matches in which each bot met its gating metrics. A separation
+section then prints, for each reported bot's metrics, its own values and the placeholders'
+values against the same threshold, and the placeholder pass rate: a gating metric must
+fail for at least 80% of placeholder bot-matches in the same evaluation (SEPARATION).
+--compare also prints the metrics for every bot, the other personalities included.
 """
 
 import argparse
@@ -32,6 +36,10 @@ ITEM_RESPAWN = 1050
 TIMED_SLACK = 70
 TIMED_ITEMS = {"Stimpack": "health", "Medikit": "health", "Soulsphere": "health",
                "GreenArmor": "armor", "BlueArmor": "armor", "Megasphere": "armor"}
+HOLD_RADIUS = 16.0
+HOLD_TICS = 70
+SEPARATION = 0.8
+PLACEHOLDER = "engine.bots:PlaceholderBot"
 OPS = {"<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge, "==": operator.eq}
 
 
@@ -53,6 +61,8 @@ class Bundle:
         self.end = self.f0 + self.m["duration_tics"]  # exclusive
         self.slots = [b["slot"] for b in self.m["bots"]]
         self.code = {b["slot"]: b["code"] for b in self.m["bots"]}
+        # schema 1 bundles predate personalities: every bot was a placeholder
+        self.controller = {b["slot"]: b.get("controller", PLACEHOLDER) for b in self.m["bots"]}
         self.rows = {s: [None] * self.end for s in self.slots}
         for r in read_jsonl(os.path.join(path, "tics.jsonl")):
             self.rows[r["slot"]][r["tic"]] = r
@@ -219,6 +229,19 @@ def frags_within_1500ms_of_visibility_share(B, s, sheet):
     return frags_within_visibility_share(B, s, 1.5 * TICRATE)
 
 
+def kills_from_hold_share(B, s, sheet):
+    kills = B.frags_by(s)
+    if not kills:
+        return None
+    rows, life, held = B.rows[s], B.life[s], 0
+    for e in kills:
+        k = e["tic"]
+        if life[k] is None or k < HOLD_TICS or life[k - HOLD_TICS] != life[k]:
+            continue
+        held += all(_dist(rows[t], rows[k]) <= HOLD_RADIUS for t in range(k - HOLD_TICS, k))
+    return held / len(kills)
+
+
 def engagement_distance_in_band_share(B, s, sheet):
     lo, hi = sheet["temperament"]["preferred_range"]
     d = [x[2] for x in B.engagement_tics(s)]
@@ -299,7 +322,7 @@ def behavior_switches_per_minute(B, s, sheet):
 
 
 def _damage_share(B, s, held):
-    """Share of the damage s dealt to other players (schema 3 damagecount) dealt while held(row at t - 1)."""
+    """Share of the damage s dealt (schema 3 damagecount: other players and barrels) dealt while held(row at t - 1)."""
     if "damagecount" not in B.rows[s][0]:
         return None
     total = part = 0
@@ -346,7 +369,7 @@ def approach_outside_view_cone_share(B, s, sheet):
 
 METRICS = {f.__name__: f for f in (
     median_engagement_distance, median_kill_distance, closing_share, median_first_sight_engagement_distance,
-    stationary_share, distance_traveled_rank, frags_within_1500ms_of_visibility_share,
+    stationary_share, distance_traveled_rank, frags_within_1500ms_of_visibility_share, kills_from_hold_share,
     engagement_distance_in_band_share, retreat_on_close_share,
     engagements_started_below_50hp_share, item_timing_hit_rate, armor_pickups_rank,
     behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share)}
@@ -359,27 +382,63 @@ def behavior_shares(B, s):
 
 
 # ---------------------------------------------------------------------- report
-def evaluate(path, sheets):
-    B = Bundle(path)
+def passes(item, v):
+    return v is not None and OPS[item["op"]](v, item["value"])
+
+
+def evaluate(B, sheets):
     by_code = {sh["code"]: sh for sh in sheets}
-    out = {"bundle": os.path.basename(os.path.normpath(path)), "seed": B.m["seed"], "bots": {}}
+    out = {"bundle": os.path.basename(os.path.normpath(B.path)), "seed": B.m["seed"], "bots": {}}
     for s in B.slots:
         code = B.code[s]
         sheet = by_code[code]
         sig = []
         for item in sheet.get("signature") or []:
             v = METRICS[item["metric"]](B, s, sheet)
-            ok = v is not None and OPS[item["op"]](v, item["value"])
             sig.append({"metric": item["metric"], "value": None if v is None else round(v, 4), "op": item["op"],
-                        "threshold": item["value"], "pass": ok})
+                        "threshold": item["value"], "gate": item.get("gate", True), "pass": passes(item, v)})
+        gates = [x for x in sig if x["gate"]]
         out["bots"][code] = {
-            "slot": s, "controller": next(b.get("controller") for b in B.m["bots"] if b["slot"] == s),
-            "signature": sig, "met": bool(sig) and all(x["pass"] for x in sig),
+            "slot": s, "controller": B.controller[s],
+            "signature": sig, "met": bool(gates) and all(x["pass"] for x in gates),
             "behavior_shares": behavior_shares(B, s),
             "frags": next(r["displayed_frags"] for r in B.m["score"]["rows"] if r["slot"] == s),
             "deaths": next(r["displayed_deaths"] for r in B.m["score"]["rows"] if r["slot"] == s),
             "distance_traveled": round(distance_traveled(B, s)),
         }
+    return out
+
+
+def separation(bundles, sheets, codes):
+    """Per signature metric of each reported bot: its own values, the placeholders' values
+    against the same threshold, and whether the metric may gate (docs/SIGNATURES.md)."""
+    by_code = {sh["code"]: sh for sh in sheets}
+    out = []
+    for code in codes:
+        for item in by_code[code].get("signature") or []:
+            own, others = [], {}
+            for B in bundles:
+                for s in B.slots:
+                    sheet = by_code[B.code[s]]
+                    if B.code[s] == code:
+                        own.append(METRICS[item["metric"]](B, s, sheet))
+                    elif B.controller[s] == PLACEHOLDER:
+                        others.setdefault(B.code[s], []).append(METRICS[item["metric"]](B, s, sheet))
+            computed = [v for vs in others.values() for v in vs if v is not None]
+            p_pass = sum(passes(item, v) for v in computed)
+            own_pass = sum(passes(item, v) for v in own)
+            fail_rate = 1 - p_pass / len(computed) if computed else None
+            separates = fail_rate is not None and fail_rate >= SEPARATION
+            out.append({
+                "bot": code, "metric": item["metric"], "op": item["op"], "threshold": item["value"],
+                "gate": item.get("gate", True),
+                "personality": {"values": [None if v is None else round(v, 4) for v in own], "passes": own_pass},
+                "placeholders": {"values": {c: [None if v is None else round(v, 4) for v in vs] for c, vs in others.items()},
+                                 "computed": len(computed), "na": sum(len(vs) for vs in others.values()) - len(computed),
+                                 "passes": p_pass, "pass_rate": None if not computed else round(p_pass / len(computed), 4)},
+                "separates": separates,
+                "can_gate": separates and bool(own) and own_pass / len(own) >= SEPARATION,
+            })
     return out
 
 
@@ -396,7 +455,9 @@ def main(argv=None):
     args = ap.parse_args(argv)
     sheets = roster.load()
     codes = [c.strip().upper() for c in args.bots.split(",")] if args.bots else [sh["code"] for sh in sheets]
-    reports = [evaluate(p, sheets) for p in args.bundles]
+    bundles = [Bundle(p) for p in args.bundles]
+    reports = [evaluate(B, sheets) for B in bundles]
+    sep = separation(bundles, sheets, codes)
     for rep in reports:
         print(f"== {rep['bundle']} (seed {rep['seed']})")
         for code in codes:
@@ -405,26 +466,37 @@ def main(argv=None):
             print(f"  {code} {'MET ' if b['met'] else 'MISS'}  frags {b['frags']} deaths {b['deaths']}  top {top} "
                   f"{b['behavior_shares'].get(top, 0):.2f}  travelled {b['distance_traveled']}")
             for x in b["signature"]:
-                print(f"      {'PASS' if x['pass'] else 'FAIL'}  {x['metric']} = {fmt(x['value'])}  (needs {x['op']} {x['threshold']})")
-    if len(reports) > 1:
-        print("== summary: matches meeting the whole signature")
-        for code in codes:
-            met = sum(1 for r in reports if r["bots"][code]["met"])
-            per = {}
-            for r in reports:
-                for x in r["bots"][code]["signature"]:
-                    per.setdefault(x["metric"], []).append(x["value"])
-            vals = "; ".join(f"{m} [{', '.join(fmt(v) for v in vs)}]" for m, vs in per.items())
-            print(f"  {code} {met}/{len(reports)}  {vals}")
+                print(f"      {'PASS' if x['pass'] else 'FAIL'}  {'gate' if x['gate'] else 'desc'}  "
+                      f"{x['metric']} = {fmt(x['value'])}  (needs {x['op']} {x['threshold']})")
+    print("== summary: matches meeting the gating metrics (desc = descriptive, does not gate)")
+    for code in codes:
+        met = sum(1 for r in reports if r["bots"][code]["met"])
+        rows = [x for x in sep if x["bot"] == code]
+        blocked = [x["metric"] for x in rows if x["gate"] and not x["can_gate"]]
+        print(f"  {code} {met}/{len(reports)}" + (f"  gating metrics that do not qualify here: {', '.join(blocked)}" if blocked else ""))
+    print(f"== separation: a gating metric must pass for its personality and fail for at least "
+          f"{SEPARATION:.0%} of placeholder bot-matches (n/a left out)")
+    for x in sep:
+        p = x["placeholders"]
+        verdict = "can gate" if x["can_gate"] else "cannot gate"
+        print(f"  {x['bot']} {x['metric']} {x['op']} {x['threshold']}  [{'gate' if x['gate'] else 'desc'}]  "
+              f"placeholders pass {p['passes']}/{p['computed']}"
+              + (f" ({p['pass_rate']:.0%})" if p["pass_rate"] is not None else "")
+              + (f", n/a {p['na']}" if p["na"] else "")
+              + f"  {'separates' if x['separates'] else 'does not separate'}; {verdict}")
+        print(f"      {x['bot']:<4} {', '.join(fmt(v) for v in x['personality']['values'])}  "
+              f"pass {x['personality']['passes']}/{len(x['personality']['values'])}")
+        for c, vs in p["values"].items():
+            print(f"      {c:<4} {', '.join(fmt(v) for v in vs)}")
     if args.compare:
-        compare(args.bundles, sheets, codes)
+        compare(bundles, sheets, codes)
     if args.json:
         with open(args.json, "w") as f:
-            json.dump(reports, f, indent=1)
+            json.dump({"matches": reports, "separation": sep}, f, indent=1)
     return 0
 
 
-def compare(paths, sheets, codes):
+def compare(bundles, sheets, codes):
     """Each reported bot's signature metrics, computed for every bot (personality and placeholder)."""
     by_code = {sh["code"]: sh for sh in sheets}
     metrics = []
@@ -432,7 +504,6 @@ def compare(paths, sheets, codes):
         for item in by_code[code].get("signature") or []:
             if item["metric"] not in metrics:
                 metrics.append(item["metric"])
-    bundles = [Bundle(p) for p in paths]
     print("== every bot on these metrics (one value per bundle)")
     for metric in metrics:
         users = [c for c in codes if any(i["metric"] == metric for i in by_code[c].get("signature") or [])]

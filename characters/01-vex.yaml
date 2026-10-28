@@ -38,6 +38,8 @@ signature:
   - metric: median_kill_distance
     op: "<"
     value: 160
+    gate: true
   - metric: closing_share   # share of IN_COMBAT tics where the distance to target_slot fell
     op: ">"
     value: 0.6
+    gate: false   # placeholders pass it too (docs/SIGNATURES.md, separation)

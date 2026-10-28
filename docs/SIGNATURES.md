@@ -2,7 +2,7 @@
 
 Every metric named in a `signature` block of `characters/*.yaml`, defined so it can be computed from a bundle's `tics.jsonl` and `events.jsonl`. Two metrics also need item positions from the bundle's `map.json`; they say so. `tools/signatures.py` implements them and reports each bot against its sheet's thresholds.
 
-A sheet's signature is met in a match when every one of its metrics passes its `op` and `value`. A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass. `tools/signatures.py --compare` prints each metric for all eight bots, so a personality can be read against the placeholders.
+A sheet's signature is met in a match when every one of its gating metrics passes its `op` and `value`; descriptive metrics are reported and do not count (see Separation). A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass. `tools/signatures.py` prints each metric of the reported bots against the placeholders; `--compare` adds the other personalities.
 
 Three metrics use the damage counters schema 3 adds (`hitcount`, `damagecount`, `damage_taken`), so they are `n/a` on schema 1 and 2 bundles: `melee_damage_share`, `chainsaw_damage_share` and `approach_outside_view_cone_share`.
 
@@ -10,6 +10,35 @@ Thresholds changed on 2026-10-28, after the first five-match report:
 - VEX: `median_kill_distance < 160` and `closing_share > 0.6` replaced `median_engagement_distance < 320` and `moving_forward_share > 0.6`.
 - HEX: `median_first_sight_engagement_distance > 500` replaced `median_engagement_distance > 500`.
 - NUL: `frags_within_1500ms_of_visibility_share >= 0.5` replaced `frags_within_1s_of_visibility_share > 0.5`.
+
+Later the same day, after the second evaluation, the separation rule below was added:
+- VEX gates on `median_kill_distance`, HEX on `stationary_share`, and NUL on `distance_traveled_rank`.
+- `closing_share`, `median_first_sight_engagement_distance` and `frags_within_1500ms_of_visibility_share` became descriptive.
+- NUL gained `kills_from_hold_share` as a descriptive candidate.
+
+## Separation
+
+Every signature item carries `gate: true` or `gate: false` in its sheet; an item without `gate` gates.
+
+A metric may gate only if, in the same evaluation:
+- **it passes for its personality** in at least 80% of matches (the acceptance bar), and
+- **it fails for at least 80% of placeholder bot-matches.** These are every match × every bot whose `controller` is `engine.bots:PlaceholderBot`, measured against the personality's own threshold. A placeholder bot-match where the metric is `n/a` is left out, not counted as failing.
+
+A metric that does not separate is descriptive. `tools/signatures.py` prints both classes and the placeholder pass rate for each metric of the reported bots. It names any gating metric that does not qualify in that evaluation.
+
+Applied to the 2A evaluation (MAP01, seeds 101–105, 25 placeholder bot-matches):
+
+| bot | metric | role | personality passes | placeholders pass |
+|---|---|---|---|---|
+| VEX | `median_kill_distance < 160` | gate | 5/5 | 4/25 (16%) |
+| VEX | `closing_share > 0.6` | descriptive | 5/5 | 19/25 (76%) |
+| HEX | `stationary_share > 0.7` | gate | 5/5 | 0/25 |
+| HEX | `median_first_sight_engagement_distance > 500` | descriptive | 5/5 | 19/25 (76%) |
+| NUL | `distance_traveled_rank <= 2` | gate | 5/5 | 0/25 |
+| NUL | `frags_within_1500ms_of_visibility_share >= 0.5` | descriptive | 5/5 | 21/25 (84%) |
+| NUL | `kills_from_hold_share >= 0.5` | descriptive | 0/5 | 0/25 |
+
+**Open: milestone 2B replaces the five placeholders with personalities**, so its evaluation has no placeholder bot-matches to separate from. It will need another baseline.
 
 ## Common terms
 
@@ -24,7 +53,7 @@ Thresholds changed on 2026-10-28, after the first five-match report:
 - **Pickup.** An alive step where `health` or `armor` rises, outside the first tic of a life. A rise in `armor` is an armor pickup; a rise in `health` is a health pickup. Ammo is not recorded, so ammo pickups are not seen. Items that do not raise a value at the moment (green armor at 100 or more) are not picked up in Doom either.
 - **Rank.** Competition ranking over the eight bots ("1224"): ties share the better rank.
 - **Kill.** A credited `frag` event in the displayed match whose `actor` is the bot (any key, barrels included).
-- **Damage dealt at tic t.** The rise in the bot's `damagecount` from `t − 1` to `t`. It is attributed to the weapon the bot held at `t − 1` (`weapon`, `weapon_name`), since an attack registers the tic after it is pressed. A rocket's damage lands at impact, so it is attributed to whatever is held then.
+- **Damage dealt at tic t.** The rise in the bot's `damagecount` from `t − 1` to `t`: damage to other players and to barrels (docs/MATCH_FORMAT.md section 5). It is attributed to the weapon the bot held at `t − 1` (`weapon`, `weapon_name`), since an attack registers the tic after it is pressed. A rocket's damage lands at impact, so it is attributed to whatever is held then.
 
 ## Definitions
 
@@ -36,27 +65,27 @@ ASH `< 96`.
 ### median_kill_distance
 Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's kills. `n/a` with no kills. Where a rusher fights, not where it first sees someone.
 
-VEX `< 160`.
+VEX `< 160`, gating.
 
 ### closing_share
 Over the bot's steps whose row at `t` has `behavior: IN_COMBAT` and the same non-null `target_slot` as the row at `t − 1`, with the target alive at both tics: the share where the distance to the target at `t` is smaller than at `t − 1`. Either player's movement counts. `n/a` with no such steps.
 
-VEX `> 0.6`.
+VEX `> 0.6`, descriptive: most placeholders pass it too.
 
 ### median_first_sight_engagement_distance
 Median distance to the target at the start of each of the bot's engagements in the displayed match (target alive at that tic). It measures how far away the bot picks fights up, not how close they end. `n/a` with no engagements.
 
-HEX `> 500`.
+HEX `> 500`, descriptive: most placeholders pass it too.
 
 ### stationary_share
 Share of the bot's alive tics in the displayed match at which it is within 32 units of where it was 35 tics earlier, in the same life. The first 35 tics of each life cannot qualify. Small strafes around a held spot count as stationary; knockback that moves the bot more than 32 units in a second does not.
 
-HEX `> 0.7`.
+HEX `> 0.7`, gating.
 
 ### distance_traveled_rank
 Each bot's distance travelled is the sum of its step lengths in the displayed match. Ranked ascending: 1 = least of the eight.
 
-NUL `<= 2`.
+NUL `<= 2`, gating.
 
 ### frags_within_1500ms_of_visibility_share
 Over the bot's kills, the share where the victim had been in view for at most 1.5 s when it died:
@@ -66,7 +95,12 @@ Over the bot's kills, the share where the victim had been in view for at most 1.
 
 Rocket flight time counts. Because an engagement starts two tics after the label appears, the measured time is 0.06 s short of the true time in view. `n/a` with no kills.
 
-NUL `>= 0.5`. The cutoff is 0.5 s longer than NUL's fire window (`fire_only_when_visible_ms: 1000`), which leaves room for rocket flight and a second hit.
+NUL `>= 0.5`, descriptive: most placeholders pass it too. The cutoff is 0.5 s longer than NUL's fire window (`fire_only_when_visible_ms: 1000`), which leaves room for rocket flight and a second hit.
+
+### kills_from_hold_share
+Over the bot's kills, the share made from a hold: at every tic from `k − 70` to `k − 1`, where `k` is the frag tic, the bot was alive in the same life and within 16 units (2D) of its position at `k`. A kill less than 70 tics into a life does not count, nor does a kill landing after the bot died. `n/a` with no kills.
+
+NUL `>= 0.5`, descriptive. It was added as a second gating candidate for NUL, with the 0.5 set before the metric was computed. It separates from the placeholders (0.000 in all 25 bot-matches) but NUL fails it, at 0.20–0.33. Only 11 of NUL's 44 kills came from a hold; 28 came after it moved more than 100 units in the 2 s before. HEX scores 0.50–1.00.
 
 ### engagement_distance_in_band_share
 Share of the bot's engagement tics whose engagement distance lies inside its sheet's `temperament.preferred_range` (inclusive).
@@ -108,7 +142,7 @@ Count of alive steps where `behavior` differs between `t − 1` and `t`, divided
 ZED `> 6`.
 
 ### melee_damage_share
-Share of the damage the bot dealt in the displayed match that it dealt while holding a weapon in engine slot 1 (fist or chainsaw) at `t − 1`. Its own splash is not damage dealt (`damagecount` counts other players only). Barrel blasts it set off count, attributed to the weapon in hand. `n/a` with no damage dealt; schema 3 only.
+Share of the damage the bot dealt in the displayed match that it dealt while holding a weapon in engine slot 1 (fist or chainsaw) at `t − 1`. Damage to barrels counts; its own splash is not damage dealt. Barrel blasts it set off count, attributed to the weapon in hand. `n/a` with no damage dealt; schema 3 only.
 
 ASH `== 1.0`. ASH may hold only the fist and chainsaw, so a lower value means damage by other means, such as a barrel.
 
