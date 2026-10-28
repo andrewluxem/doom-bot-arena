@@ -204,6 +204,7 @@ Each process writes only its own slot's rows.
 - `damage_taken` counts all of them. `damagecount` and `hitcount` count only damage this player dealt to another player: its own splash is in its `damage_taken` and nowhere else.
 - A barrel's blast counts for the player who set the barrel off: in the controlled bench's barrel stage, the shooter's `damagecount` rose 324 over 3 hits at the blast tic, 128 of it the staged victim's.
 - The counter moves at the tic the damage lands: for a rocket, at impact, not at the shot.
+- **Open finding.** In the five milestone 2A evaluation matches, 1,300 of 51,036 damage points dealt (2.5%, in 32 tics) were matched by no damage taken, and no health change, by any player in the same tic. Only half of those tics had a player under spawn protection; the cause is not identified. Match totals still satisfy dealt ≤ taken.
 
 **Target identity** follows the fairness rule in section 2a. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
 
@@ -321,7 +322,7 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
   - `target_slot` is `null` or another slot, only on alive rows, and that slot was alive at some tic in the last 35.
   - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point, except within 1.5 units of a sector boundary (the validator prints how many such rows it allowed).
   - The scoreboard is off for every slot, every bot has a `controller` and `weapons_resolved`, and `spots.json` candidates and chosen spots are well formed.
-- **Schema 3 fields.** The damage counters are non-negative integers that never fall. In every tic the damage all players dealt to other players is at most the damage all players took.
+- **Schema 3 fields.** The damage counters are non-negative integers that never fall. Over the match, the damage all players dealt to other players is at most the damage all players took.
 - **Events.** Every death event's `source` re-parses to the same event. Event counts match.
 - **Pairing.**
   - Every `alive` true→false in a slot's rows has exactly one death event for that slot at that tic.

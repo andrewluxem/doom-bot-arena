@@ -19,8 +19,10 @@ Timing, with the barrier at the end of every tic ordering the steps:
 - A request posted at tic t is answered during tic t + 1: each process answers right after
   its get_state, before its controller acts.
 - The asker reads the answer at tic t + 2.
-- Answers are cached per label object id, which a process keeps for an actor's lifetime. So
-  only a newly seen player waits two tics for its name.
+- Answers are cached per label object id, so only a newly seen player waits two tics for its
+  name. ViZDoom can give a new actor an id an old one had (seen as a dead player named
+  again in one 2A evaluation match), so a cached name is asked again every VERIFY_TICS (half a second).
+  If nobody answers, it is dropped, and a corpse's id is dropped as soon as it is seen.
 
 Labels report an actor's position at its own tic or the one before, sampled slightly apart
 from the game variables (probed on 1.3.2: 81% equal the previous tic's position exactly, the
@@ -37,6 +39,7 @@ REQ_FIELDS = 3  # x, y, used
 ANS_FIELDS = 2  # slot, distance
 MATCH_RADIUS = 20.0
 NO_ANSWER = 1e9
+VERIFY_TICS = 17  # half a second: with the two-tic answer delay, inside the validator's 35-tic target rule
 
 
 def _req(parity, asker, i):
@@ -100,6 +103,7 @@ class IdentityReader:
     def __init__(self, array, slot):
         self.a, self.slot = array, slot
         self.known = {}  # label object id -> slot
+        self.checked = {}  # label object id -> tic its name was last asked
         self.posted = {}  # tic -> [object id per request index]
 
     def identify(self, t, labels):
@@ -113,13 +117,17 @@ class IdentityReader:
             ab = _ans(p, self.slot, i)
             if self.a[ab + 1] < NO_ANSWER:
                 self.known[oid] = int(self.a[ab])
+            else:
+                self.known.pop(oid, None)  # nobody claims it (any more)
             self.a[ab], self.a[ab + 1] = 0.0, NO_ANSWER
         for i in range(MAX_LABELS):
             self.a[_req(p, self.slot, i) + 2] = 0.0
         out, post = {}, []
         for oid, x, y in labels:
             out[oid] = self.known.get(oid)
-            if out[oid] is None and len(post) < MAX_LABELS:
+            stale = t - self.checked.get(oid, -VERIFY_TICS) >= VERIFY_TICS
+            if (out[oid] is None or stale) and len(post) < MAX_LABELS:
+                self.checked[oid] = t
                 base = _req(p, self.slot, len(post))
                 self.a[base], self.a[base + 1], self.a[base + 2] = x, y, 1.0
                 post.append(oid)
@@ -130,6 +138,7 @@ class IdentityReader:
         """Drop cached names for actors this process no longer sees (dead and gone)."""
         for oid in oids:
             self.known.pop(oid, None)
+            self.checked.pop(oid, None)
 
 
 class NoIdentity:

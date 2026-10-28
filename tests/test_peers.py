@@ -138,3 +138,15 @@ def test_only_allowed_modules_import_or_query_the_table():
     assert importers <= allowed, f"modules importing engine.peers outside the rule: {sorted(importers - allowed)}"
     assert queriers <= {os.path.join("engine", "personality", "perception.py")}, \
         f"identify() called outside perception: {sorted(queriers)}"
+
+
+def test_a_reused_label_id_is_renamed_or_dropped():
+    """ViZDoom can give a new actor an old actor's id: a cached name must not outlive its owner."""
+    # slot 2 is seen until tic 40, then dies and goes away; slot 5 then appears under the same label id
+    positions = {1: lambda t: (0.0, 0.0), 2: lambda t: (300.0, 40.0) if t < 40 else (3000.0, 3000.0),
+                 5: lambda t: (1500.0, -900.0) if t < 40 else (600.0, 80.0)}
+    labels = lambda t: [(77, 300.0, 40.0)] if t < 40 else [(77, 600.0, 80.0)]
+    _, results = run(120, labels, positions)
+    assert results[30] == {77: 2}
+    assert results[-1] == {77: 5}, results[-1]
+    assert all(r[77] in (None, 5) for r in results[40 + peers.VERIFY_TICS + 3:])

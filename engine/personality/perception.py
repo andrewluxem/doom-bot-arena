@@ -54,6 +54,7 @@ class Perception:
         for c in self.contacts.values():
             c.visible = False
         players, corpses = player_labels(state, own_x, own_y)
+        (identity or NoIdentity()).forget([oid for oid, _, _ in corpses])
         names = name_labels(identity, t, players)
         for lab in players:
             oid, x, y = lab.object_id, lab.object_position_x, lab.object_position_y
@@ -70,7 +71,7 @@ class Perception:
             self.last_any_contact = t
         gone = []
         for k, c in list(self.contacts.items()):
-            seen_dying = not c.visible and any(math.hypot(cx - c.x, cy - c.y) < 48 for cx, cy in corpses)
+            seen_dying = not c.visible and any(math.hypot(cx - c.x, cy - c.y) < 48 for _, cx, cy in corpses)
             if seen_dying or t - c.last_seen > FORGET_TICS:
                 del self.contacts[k]
                 gone.append(k)
@@ -90,11 +91,11 @@ class Perception:
 
 
 def player_labels(state, own_x, own_y):
-    """(live player labels, corpse positions) in this tic's buffer, without the bot's own actor."""
+    """(live player labels, corpses as (object id, x, y)) in this tic's buffer, without the bot's own actor."""
     players, corpses = [], []
     for lab in state.labels or []:
         if lab.object_name == CORPSE:
-            corpses.append((lab.object_position_x, lab.object_position_y))
+            corpses.append((lab.object_id, lab.object_position_x, lab.object_position_y))
         elif lab.object_name == ENEMY and math.hypot(lab.object_position_x - own_x,
                                                      lab.object_position_y - own_y) >= SELF_RADIUS:
             players.append(lab)
