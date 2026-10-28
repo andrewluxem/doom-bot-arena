@@ -132,7 +132,7 @@ What a bot may know. Tests enforce the identity rule; review enforces the rest.
              "messages_per_slot": [false, false, false, false, false, false, false, false],
              "scoreboard_per_slot": [false, false, false, false, false, false, false, false]},
   "pov": [{"slot": 1, "path": "pov/slot1.mp4", "sha256": "…"}],
-  "spot_traffic": {"source": "observed", "cell": 64, "bundles": ["20261028T183738Z-MAP10-s211", "…"], "samples": 168000},
+  "spot_traffic": {"source": "observed", "bundle_kind": "eval", "cell": 64, "bundles": ["20261028T183738Z-MAP10-s211", "…"], "samples": 168000},
   "host_args": ["-host 8", "…"], "client_args": ["-join 127.0.0.1", "…"]
 }
 ```
@@ -322,6 +322,7 @@ Spot candidates for the stationary styles and the spots bots chose (`engine/pers
   - `sightlines_min_near_traffic`: `(1 − exposure)² × T`.
   - `watch_angle` faces the 13-ray window with the most traffic in sight: each ray sums the cells it crosses, sampled every 32 units, out to its sight length clipped at the far end of the preferred range.
   - `params` gives `traffic: "observed"`, `traffic_bundles` and `traffic_samples`; candidates carry `traffic` (the 3×3 sum). `match.json` `spot_traffic` names the same bundles, or `{"source": "routes"}` when there were none and the route scorer above was used.
+  - Source (milestone 2D, `bundle_kind`): evaluation bundles of the map (every slot a personality) whenever the runner is given any; bundles with placeholders only when there are none. `make eval-2d` gives it the earlier evaluations (`TRAFFIC_EVALS`, eval-2c) and the 2C placeholder bundles; the holdout's own bundles never feed it.
 - `chosen` lists every spot a bot picked, from the tic it picked it to the tic it left it (`to_tic` is the last tic, inclusive). `angle` is the candidate's `watch_angle`.
 - Tables are cached by IWAD sha256, map, nav-graph version, parameters and a hash of the traffic map in `<out>/.cache/`.
 

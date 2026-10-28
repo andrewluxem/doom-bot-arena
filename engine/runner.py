@@ -146,7 +146,8 @@ def main(argv=None):
                         "(default %(default)s; 'none' is the separation baseline)")
     p.add_argument("--traffic", nargs="*", default=[],
                    help="bundle directories (or directories of bundles) whose bundles of this map make the observed "
-                        "traffic map for spot scoring; with none of this map, spots use the route scorer")
+                        "traffic map for spot scoring: evaluation bundles if any, else placeholder ones; with none "
+                        "of this map, spots use the route scorer")
     args = p.parse_args(argv)
 
     err = preflight()
@@ -188,7 +189,7 @@ def main(argv=None):
     frame0 = bundle.frame0_tic(args.respawn_delay, game.TICRATE)
     total = frame0 + args.duration_tics
     log(f"match {match_id}: ViZDoom {game.version()}, {frame0} pre-roll + {args.duration_tics} tics, seed {args.seed}")
-    log("spot traffic: " + (f"observed, {len(traffic['bundles'])} bundle(s), {traffic['samples']} samples"
+    log("spot traffic: " + (f"observed, {len(traffic['bundles'])} {traffic['source']} bundle(s), {traffic['samples']} samples"
                             if traffic else "routes (no bundles of this map)"))
     try:
         capture = match.run_match(
@@ -255,7 +256,8 @@ def main(argv=None):
                    "scoreboard_per_slot": [capture["scoreboard"][s] for s in roster.SLOTS]},
         "pov": [{"slot": s, "path": f"pov/slot{s}.mp4", "sha256": sha256_file(os.path.join(bundle_dir, "pov", f"slot{s}.mp4"))}
                 for s in roster.SLOTS],
-        "spot_traffic": ({"source": "observed", "cell": traffic["cell"], "bundles": traffic["bundles"],
+        "spot_traffic": ({"source": "observed", "bundle_kind": traffic.get("source", "placeholder"),
+                          "cell": traffic["cell"], "bundles": traffic["bundles"],
                           "samples": traffic["samples"]} if traffic else {"source": "routes"}),
         "host_args": capture["host_args"],
         "client_args": capture["client_args"],

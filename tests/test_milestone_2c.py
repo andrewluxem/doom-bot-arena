@@ -108,3 +108,17 @@ def test_third_party_kill_share(tmp_path):
     B = S.Bundle(str(write_bundle(tmp_path / "m", {1: pyr, 2: vex, 3: krn, 4: nul}, events=events)))
     assert math.isclose(S.third_party_kill_share(B, 1, {}), 2 / 3)
     assert S.third_party_kill_share(B, 2, {}) is None  # no kills
+
+
+def test_traffic_prefers_evaluation_bundles_over_placeholder_ones(tmp_path):
+    rows = [{"x": 10.0, "y": 10.0, "alive": True}] * 2
+    write_bundle(tmp_path / "eval" / "e1", {1: rows})
+    p = write_bundle(tmp_path / "base" / "p1", {1: [{"x": 500.0, "y": 0.0, "alive": True}] * 2})
+    m = json.loads((p / "match.json").read_text())
+    m["bots"][0]["controller"] = "engine.bots:PlaceholderBot"
+    (p / "match.json").write_text(json.dumps(m))
+    md = {"source": {"map": "MAP10", "iwad_sha256": "abc"}}
+    both = traffic.build([str(tmp_path / "eval"), str(tmp_path / "base")], md)
+    assert both["source"] == "eval" and both["bundles"] == ["e1"]
+    only = traffic.build([str(tmp_path / "base")], md)
+    assert only["source"] == "placeholder" and only["bundles"] == ["p1"]

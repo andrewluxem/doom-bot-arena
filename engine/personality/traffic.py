@@ -3,6 +3,9 @@
 Every alive row of every slot in the displayed match counts once in the 64-unit cell holding its
 x, y (cells are aligned to the map origin). Only bundles of the same map and IWAD count. Spot
 scoring (spots.py) reads a spot's traffic as the sum over its cell and the eight cells around it.
+
+Source (milestone 2D): evaluation bundles, where every slot is a personality, when any of the map
+are found; bundles with placeholders (traffic-2c) only when there are none.
 """
 
 import hashlib
@@ -11,7 +14,8 @@ import math
 import os
 from collections import Counter
 
-VERSION = 1
+VERSION = 2  # 2: evaluation bundles first, placeholder bundles as fallback
+PLACEHOLDER = "engine.bots:PlaceholderBot"
 CELL = 64
 
 
@@ -34,12 +38,17 @@ def bundle_dirs(roots):
 def build(roots, map_data):
     """The traffic map of map_data's map from the bundles under `roots`, or None if none is of that map."""
     src = map_data["source"]
-    counts, used, samples = Counter(), [], 0
+    found = {"eval": [], "placeholder": []}
     for path in bundle_dirs(roots):
         with open(os.path.join(path, "match.json")) as f:
             m = json.load(f)
         if m.get("map") != src["map"] or m.get("iwad", {}).get("sha256") != src["iwad_sha256"]:
             continue
+        evaluation = all(b.get("controller", PLACEHOLDER) != PLACEHOLDER for b in m["bots"])
+        found["eval" if evaluation else "placeholder"].append((path, m))
+    kind = "eval" if found["eval"] else "placeholder"
+    counts, used, samples = Counter(), [], 0
+    for path, m in found[kind]:
         f0, end = m["frame0_tic"], m["frame0_tic"] + m["duration_tics"]
         with open(os.path.join(path, "tics.jsonl")) as f:
             for line in f:
@@ -51,7 +60,7 @@ def build(roots, map_data):
     if not used:
         return None
     return {"traffic_version": VERSION, "cell": CELL, "map": src["map"], "iwad_sha256": src["iwad_sha256"],
-            "bundles": used, "samples": samples,
+            "source": kind, "bundles": used, "samples": samples,
             "cells": {f"{cx},{cy}": n for (cx, cy), n in sorted(counts.items())}}
 
 

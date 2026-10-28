@@ -22,6 +22,11 @@ EVAL2B_MAPS ?= MAP10 E1M5
 EVAL2B_SEEDS ?= 301 302 303 304 305
 EVAL2B_OUT ?= bundles/eval-2b
 
+# Milestone 2D holdout: thresholds fitted on eval-2c, spots scored by the traffic of the earlier evaluations.
+EVAL2D_SEEDS ?= 501 502 503 504 505
+EVAL2D_OUT ?= bundles/eval-2d
+TRAFFIC_EVALS ?= bundles/eval-2c
+
 # Milestone 2C: two placeholder matches per map seed the traffic map spots are scored by, then the evaluation.
 EVAL2C_MAPS ?= MAP10 E1M5
 TRAFFIC_SEEDS ?= 211 212
@@ -34,7 +39,7 @@ DISK_CHECK = avail=$$(df -Pk . | awk 'NR==2 {print int($$4 / 1048576)}'); \
 	if [ "$$avail" -lt $(MIN_FREE_GB) ]; then echo "refusing to start: $$avail GB free, under $(MIN_FREE_GB) GB"; exit 1; fi; \
 	echo "disk: $$avail GB free"
 
-.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b traffic-2c eval-2c signatures-2c fit-2d signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b docker-traffic-2c docker-eval-2c docker-signatures-2c docker-fit-2d
+.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b traffic-2c eval-2c signatures-2c eval-2d fit-2d signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b docker-traffic-2c docker-eval-2c docker-signatures-2c docker-eval-2d docker-fit-2d
 
 test:
 	$(PYTHON) -m pytest -q tests
@@ -106,10 +111,22 @@ eval-2c:
 	done; done
 	$(MAKE) signatures-2c
 
+# Traffic from every earlier evaluation of the map (TRAFFIC_EVALS), placeholder bundles only as fallback.
+eval-2d:
+	for m in $(EVAL2C_MAPS); do for s in $(EVAL2D_SEEDS); do \
+		$(DISK_CHECK); \
+		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all \
+			--traffic $(foreach d,$(TRAFFIC_EVALS),$(d)/$$m) $(TRAFFIC_OUT)/$$m --out $(EVAL2D_OUT)/$$m \
+		|| $(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all \
+			--traffic $(foreach d,$(TRAFFIC_EVALS),$(d)/$$m) $(TRAFFIC_OUT)/$$m --out $(EVAL2D_OUT)/$$m || exit 1; \
+	done; done
+	$(MAKE) signatures-2c EVAL2C_OUT=$(EVAL2D_OUT)
+
 signatures-2c:
 	$(PYTHON) tools/frag_rate.py --json $(EVAL2C_OUT)/frag_rate.json $(EVAL2C_OUT)/*/2*
 	$(PYTHON) tools/signatures.py --json $(EVAL2C_OUT)/signatures.json $(EVAL2C_OUT)/*/2*
 	$(PYTHON) tools/hold_contact.py --bots NUL,HEX --json $(EVAL2C_OUT)/hold_contact.json $(EVAL2C_OUT)/*/2*
+	$(PYTHON) tools/item_latency.py --bots KRN --json $(EVAL2C_OUT)/item_latency.json $(EVAL2C_OUT)/*/2*
 
 # Milestone 2D: fit every gating threshold to FIT_ON against the roster; --write applies separating fits to the sheets.
 FIT_ON ?= bundles/eval-2c
@@ -148,6 +165,9 @@ docker-eval-2c:
 
 docker-signatures-2c:
 	$(DOCKER_RUN) make signatures-2c EVAL2C_OUT=$(EVAL2C_OUT)
+
+docker-eval-2d:
+	$(DOCKER_RUN) make eval-2d EVAL2C_MAPS="$(EVAL2C_MAPS)" EVAL2D_SEEDS="$(EVAL2D_SEEDS)" EVAL2D_OUT=$(EVAL2D_OUT) TRAFFIC_EVALS="$(TRAFFIC_EVALS)" TRAFFIC_OUT=$(TRAFFIC_OUT)
 
 docker-fit-2d:
 	$(DOCKER_RUN) make fit-2d FIT_ON=$(FIT_ON) FIT_ARGS="$(FIT_ARGS)"
