@@ -21,8 +21,11 @@ The graph keeps every strongly connected region of at least MIN_REGION nodes, an
 that can walk into one (a ledge or a one-way drop). Until VERSION 5 it kept only the largest
 region, which left bots spawning elsewhere with no graph at all: freedoom2 MAP10 splits into
 two regions on the static map (floors that W1/S1 lines lower in play are not modelled), and
-three of its ten deathmatch starts are in the smaller one. Search never leaves the start's own
-region, so goals elsewhere are simply unreachable. `region_id` numbers the kept regions by size
+three of its ten deathmatch starts are in the smaller one. An edge between two regions is one
+way (else they would be one region), so it is kept only toward a larger region: a way out of a
+pocket, never a way into one. MAP10 has a pocket of 164 nodes (one deathmatch start) entered by
+a WR teleporter and left only by an S1 switch the graph does not model; nothing paths into it.
+Search never leaves the start's own region, so goals elsewhere are simply unreachable. `region_id` numbers the kept regions by size
 (0 the largest; -1 for nodes that only lead into one), and `nearest` snaps to region 0 whenever a
 node of it is in straight-line reach, as VERSION 5 did, so a side pocket never captures a bot
 standing next to the main region.
@@ -326,9 +329,17 @@ class NavGraph:
         rid = {i: k for k, c in enumerate(big) for i in c}
         keep = sorted(into)
         self.region_id = [rid.get(i, -1) for i in keep]
+        size = lambda i: len(big[rid[i]]) if i in rid else 0
+
+        def kept_edge(i, j):
+            if j not in into:
+                return False
+            if i in rid and (j not in rid or rid[j] != rid[i]):
+                return j in rid and size(j) > size(i)  # one way: only out to a larger region
+            return True
         remap = {old: new for new, old in enumerate(keep)}
         self.nodes = [self.nodes[i] for i in keep]
-        self.edges = [[(remap[j], c, k, info) for j, c, k, info in self.edges[i] if j in remap] for i in keep]
+        self.edges = [[(remap[j], c, k, info) for j, c, k, info in self.edges[i] if kept_edge(i, j)] for i in keep]
         self.node_grid = Grid(b, LINK_RADIUS)
         for i, (x, y, _) in enumerate(self.nodes):
             self.node_grid.add_box(i, x, y, x, y)
