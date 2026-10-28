@@ -1,0 +1,25 @@
+{"tic":0,"type":"telefrag","actor":2,"target":1,"key":"OB_MPTELEFRAG","credited":false,"source":"OBIT|OB_MPTELEFRAG|Vex|Kronos"}
+{"tic":0,"type":"telefrag","actor":4,"target":2,"key":"OB_MPTELEFRAG","credited":false,"source":"OBIT|OB_MPTELEFRAG|Kronos|Ash"}
+{"tic":0,"type":"telefrag","actor":8,"target":4,"key":"OB_MPTELEFRAG","credited":false,"source":"OBIT|OB_MPTELEFRAG|Ash|Zed"}
+{"tic":0,"type":"telefrag","actor":7,"target":6,"key":"OB_MPTELEFRAG","credited":false,"source":"OBIT|OB_MPTELEFRAG|Hex|Pyre"}
+{"tic":71,"type":"respawn","actor":1,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":71,"type":"respawn","actor":2,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":71,"type":"respawn","actor":4,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":71,"type":"respawn","actor":6,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":380,"type":"frag","actor":8,"target":3,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Null|Zed"}
+{"tic":451,"type":"respawn","actor":3,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":654,"type":"frag","actor":6,"target":5,"key":"OB_MPCHAINGUN","credited":true,"source":"OBIT|OB_MPCHAINGUN|Orbit|Hex"}
+{"tic":725,"type":"respawn","actor":5,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":781,"type":"frag","actor":8,"target":3,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Null|Zed"}
+{"tic":828,"type":"frag","actor":5,"target":2,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Kronos|Orbit"}
+{"tic":852,"type":"respawn","actor":3,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":899,"type":"respawn","actor":2,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":916,"type":"frag","actor":5,"target":4,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Ash|Orbit"}
+{"tic":970,"type":"telefrag","actor":1,"target":2,"key":"OB_MPTELEFRAG","credited":true,"source":"OBIT|OB_MPTELEFRAG|Kronos|Vex"}
+{"tic":987,"type":"respawn","actor":4,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":997,"type":"frag","actor":5,"target":3,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Null|Orbit"}
+{"tic":1041,"type":"respawn","actor":2,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":1068,"type":"respawn","actor":3,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":1104,"type":"frag","actor":1,"target":4,"key":"OB_MPSSHOTGUN","credited":true,"source":"OBIT|OB_MPSSHOTGUN|Ash|Vex"}
+{"tic":1175,"type":"respawn","actor":4,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":1187,"type":"frag","actor":3,"target":8,"key":"OB_MPPISTOL","credited":true,"source":"OBIT|OB_MPPISTOL|Zed|Null"}

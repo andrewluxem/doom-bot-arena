@@ -14,6 +14,12 @@ slot 8 renders messages as a positive control. Their frames show whether
 message text reaches the top of the POV. (Two players cannot share one spot:
 warping both onto the same point in the same tic telefragged one of them.)
 
+The staged victims check the dead-player scoreboard the same way. Slot 1 renders
+like a capture client (scoreboard off) and dies in stages 1 and 3; slot 2 renders
+the scoreboard as a positive control and dies in stages 2 and 4. ZDoom draws the
+board only while the player's camera is dead (ct_chat.cpp), and a console `kill`
+never showed it in probes, so the check needs these real deaths.
+
 Needs MAP01 from the Freedoom 0.13 IWAD shipped with ViZDoom 1.3.2: the
 teleporter coordinates below are specific to it.
 """
@@ -36,11 +42,14 @@ FREEDOOM_013_SHA256 = "a8772e088847032510d97ba2312406a6998f21cbab44d4ff10696faa9
 # at (1312,1120). Sector 86 east of line 938 is only 40 units wide; (598,-608) clears the door at x=616.
 TELEPORTER = {"dest": (1312, 1120), "approach": (598, -608), "face_deg": 180.0}
 OBSERVERS = (7, 8)
+SCOREBOARD_CAPTURE, SCOREBOARD_CONTROL = 1, 2  # capture setting, positive control
+SWATCH_W = 24  # HU_DrawPlayer fills a 24-pixel player-colour swatch per scoreboard row (CleanXfac 1 at 320x240)
 STATIC_LIGHT_SPECIALS = {0, 9}  # 9 is "secret", not a light effect
 BAND_ROWS = 64  # top of the 240-row frame, where ZDoom draws notify messages
 DURATION = 1400
 DUMP_EVERY = 5
 RESPAWN_DELAY = 2
+RESPAWN_PROTECT_TICS = 3 * 35  # sv_respawnprotect
 
 
 # ------------------------------------------------------------------ geometry
@@ -192,7 +201,11 @@ class StagedController:
             if s == 1:
                 cmds.append("warp %d %d" % tuple(p["kill"]["A"]))
             if s == 2:
-                cmds += ["warp %d %d" % tuple(p["kill"]["B"]), "give supershotgun", "give ammo", "use SuperShotgun"]
+                cmds += ["warp %d %d" % tuple(p["kill"]["B"]), "give supershotgun", "give ammo"]
+        # `use` runs locally before the `give` net command lands, and neverswitchonpickup stops the
+        # engine from switching on its own, so each weapon is selected a few tics after it is given.
+        if s == 2 and t == 145:
+            cmds.append("use SuperShotgun")
         if s == 2 and t == 150:
             self.face, self.fire = angle_to(p["kill"]["B"], p["kill"]["A"]), (40, 175, 400)
         if t == 500 and s == 2:
@@ -203,7 +216,9 @@ class StagedController:
         if t == 545 and s == 3:
             self.face, self.walk = p["telefrag"]["face_deg"], (560, 620)
         if t == 640 and s == 1:
-            cmds += ["warp %d %d" % tuple(p["selfkill"]["W"]), "give rocketlauncher", "give ammo", "use RocketLauncher"]
+            cmds += ["warp %d %d" % tuple(p["selfkill"]["W"]), "give rocketlauncher", "give ammo"]
+        if t == 645 and s == 1:
+            cmds.append("use RocketLauncher")
         if t == 650 and s == 1:
             self.face, self.fire = p["selfkill"]["face_deg"], (30, 690, 900)
         if t == 960:
@@ -226,7 +241,7 @@ class StagedController:
                     action["ATTACK"], self.last_fire = 1, t
         if self.walk and self.walk[0] <= t <= self.walk[1]:
             action["MOVE_FORWARD"], behavior = 1, "ROAMING"
-        return action, cmds, behavior, None
+        return action, cmds, behavior, None, {"weapon_name": None, "target_slot": None}
 
 
 EXPECTED = [  # (stage, type, actor, target, key, first tic, last tic)
@@ -288,6 +303,13 @@ def check_messages(capture, rows, notes_by_slot):
         if not by[(DURATION - 1, s)]["alive"] or settle[s] > 300:
             problems.append(f"slot {s} was not alive and static from tic 300 (last moved at {settle[s] - 1})")
     start = max(settle.values()) + 70  # view height settles after the warp landing
+    # sv_respawnprotect is a 3 s powerup on every spawn. When it expires the engine can draw for a
+    # frame: an observer telefragged at tic 0 respawned at 71 and showed a 3x5 grey mark at x 271-273,
+    # y 15-19 at tic 175, outside the message area. Messages are compared only after it has ended.
+    for s in OBSERVERS:
+        spawns = [t for t in range(1, DURATION) if by[(t, s)]["alive"] and not by[(t - 1, s)]["alive"]]
+        if spawns:
+            start = max(start, max(spawns) + RESPAWN_PROTECT_TICS + 1)
     windows = [o for o in message_tics if o - DUMP_EVERY >= start]
     if not windows:
         return problems + ["no messages after the observers settled; positive control not exercised"], info
@@ -320,6 +342,69 @@ def check_messages(capture, rows, notes_by_slot):
     if info.get(8, {}).get("max_changed_pixels_per_message"):
         shown = info[8]["max_changed_pixels_per_message"]
         _save_evidence(frames[8], frames[7], capture["workdir"], max(shown, key=shown.get))
+    return problems, info
+
+
+def scoreboard_rows(frame, tol=2):
+    """How many scoreboard rows a raw frame shows: player-colour swatches stacked at one x.
+
+    A swatch row is a run of 5+ frame rows whose pixels x0..x0+23 are one colour (within tol)
+    with a different colour just outside. Consecutive swatches sit 7-16 rows apart and differ
+    in colour. World geometry does not produce six of these stacked at one x.
+    """
+    f = frame.astype(np.int16)
+    h, w, _ = f.shape
+    best = 0
+    for x0 in range(1, w - SWATCH_W - 1):
+        seg = f[:, x0:x0 + SWATCH_W]
+        uniform = np.all(np.abs(seg - seg[:, :1]) <= tol, axis=(1, 2))
+        if uniform.sum() < 30:
+            continue
+        edge = (np.any(np.abs(f[:, x0 - 1] - f[:, x0]) > tol, axis=1)
+                | np.any(np.abs(f[:, x0 + SWATCH_W] - f[:, x0 + SWATCH_W - 1]) > tol, axis=1))
+        rows = uniform & edge
+        blocks, y = [], 0
+        while y < h:
+            if not rows[y]:
+                y += 1
+                continue
+            y1 = y
+            while y1 + 1 < h and rows[y1 + 1] and np.all(np.abs(f[y1 + 1, x0] - f[y, x0]) <= tol):
+                y1 += 1
+            if y1 - y >= 4:
+                blocks.append((y, f[y, x0]))
+            y = y1 + 1
+        run = 1
+        for (ya, ca), (yb, cb) in zip(blocks, blocks[1:]):
+            run = run + 1 if 7 <= yb - ya <= 16 and np.abs(ca - cb).max() > tol else 1
+            best = max(best, run)
+    return best
+
+
+def check_scoreboard(capture, events):
+    """Dead-player scoreboard: never in the capture-setting victim's frames, present for the control.
+
+    Frames are the raw dumps (every DUMP_EVERY tics) from 5 tics after each death until respawn.
+    """
+    problems, info = [], {}
+    respawn_after = RESPAWN_DELAY * 35 + 1
+    for s in (SCOREBOARD_CAPTURE, SCOREBOARD_CONTROL):
+        frames = np.load(os.path.join(capture["workdir"], f"slot{s}", "frames.npy"), mmap_mode="r")
+        per_death = {}
+        for e in events:
+            if e["type"] == "respawn" or e["target"] != s or e["tic"] == 0:
+                continue
+            ticks = [t for t in range(e["tic"] + 5, e["tic"] + respawn_after) if t % DUMP_EVERY == 0 and t // DUMP_EVERY < len(frames)]
+            per_death[e["tic"]] = {"key": e["key"], "rows": [scoreboard_rows(frames[t // DUMP_EVERY]) for t in ticks]}
+        info[s] = per_death
+        if not per_death:
+            problems.append(f"slot {s} never died after tic 0; nothing to check")
+        for tic, d in per_death.items():
+            shown = sum(1 for n in d["rows"] if n >= 6)
+            if s == SCOREBOARD_CAPTURE and max(d["rows"], default=0) >= 4:
+                problems.append(f"capture-setting victim: scoreboard rows {d['rows']} after its death at tic {tic} ({d['key']})")
+            if s == SCOREBOARD_CONTROL and d["key"] != "OB_KILLEDSELF" and shown * 2 < len(d["rows"]):
+                problems.append(f"positive control showed the scoreboard in {shown}/{len(d['rows'])} frames after its death at tic {tic} ({d['key']})")
     return problems, info
 
 
@@ -367,7 +452,9 @@ def main(argv=None):
             port=args.port, respawn_delay=RESPAWN_DELAY, workdir=workdir,
             controller="engine.bench.controlled:StagedController",
             controller_kwargs={s: {"plan": plan} for s in roster.SLOTS}, video=False, cheats=True,
-            render_messages={8: True}, dump_frames_every={s: DUMP_EVERY for s in OBSERVERS}, log=lambda m: None)
+            render_messages={8: True}, scoreboard={SCOREBOARD_CONTROL: True},
+            dump_frames_every={s: DUMP_EVERY for s in OBSERVERS + (SCOREBOARD_CAPTURE, SCOREBOARD_CONTROL)},
+            log=lambda m: None)
     except match.MatchFailed as e:
         report("all 8 processes ran to the end", [str(e)])
         return 1
@@ -386,6 +473,10 @@ def main(argv=None):
     msg_problems, info = check_messages(capture, data["rows"], notes_by_slot)
     ok &= report("message rendering off: top-left message area clean in capture POV", msg_problems)
     print(f"      {json.dumps(info)}")
+    sb_problems, sb_info = check_scoreboard(capture, data["events"])
+    ok &= report("scoreboard off: no dead-player scoreboard in a capture POV (slot 2 renders it as the control)",
+                 sb_problems)
+    print(f"      {json.dumps(sb_info)}")
     print(f"      unknown notification lines: {len(data['unknown'])} (logged, no events)")
     print("CONTROLLED BENCH " + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1

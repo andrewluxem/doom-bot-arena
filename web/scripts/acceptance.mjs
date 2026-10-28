@@ -2,13 +2,15 @@
 
      npm run build && npm run acceptance                       # serves dist/ with python3 -m http.server
      node scripts/acceptance.mjs --url http://127.0.0.1:5173/  # or any running copy
-     options: --event <tic> (frag event to trace; default: first frag 5 s or more in), --headed, --out results.json
+     options: --bundle <id> (default: the first in index.json), --event <tic> (frag event to trace; default: first
+              frag 5 s or more in), --headed, --out results.json
 
    1. Drift: play the whole sample; every video's presented frame stays within 2 frames of the master clock, and so does the map.
    2. Seek: paused and playing seeks to spread-out tics; all eight resync within 1 s.
    3. One frag event: map x, kill feed, killer's tile, and the killer's POV frame (pixels matched against ffmpeg's decode).
    4. Focus and return without reload: 1-8, ESC, M, tile click, map-marker click, return button.
-   5. Phone 390x844: all eight tiles reachable, dock pinned, nothing covers a nameplate. */
+   5. Phone 390x844: all eight tiles reachable, dock pinned, nothing covers a nameplate.
+   6. Schema 2 bundles: the focused bot's telemetry shows its selected weapon by name, its target and its sector. */
 import { spawn, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -31,6 +33,7 @@ if (!url) {
   url = `http://127.0.0.1:${port}/`;
   await sleep(800);
 }
+if (args.bundle) url = `${url.replace(/#.*$/, '')}#b=${args.bundle}`;
 results.url = url;
 console.log(`viewer: ${url}`);
 
@@ -163,6 +166,32 @@ try {
   const modesOk = modes.every((m, i) => m.mode === expect[i][0] && (expect[i][0] === 'map' || m.focus === expect[i][1]) && (m.mode !== 'focus' || !m.stage || +m.stage === m.focus));
   check('focus/return: 1-8, ESC, M, tile click, map marker click, Return button; no reload, same video elements, still playing',
     modesOk && after.noReload && after.sameVideos && after.playing && after.paused === 0, { after });
+
+  /* ---------- 6. schema 2 telemetry ---------- */
+  const m2 = await page.evaluate(async () => {
+    const get = async (f) => (await fetch(new URL(`sample/${__dba.bundle}/${f}`, location.href))).text();
+    const m = JSON.parse(await get('match.json'));
+    if (m.schema_version < 2) return null;
+    const rows = (await get('tics.jsonl')).trim().split('\n').map(JSON.parse);
+    const r = rows.find((x) => x.tic >= m.frame0_tic + 35 && x.alive && x.target_slot && x.weapon_name && x.sector != null);
+    return r ? { r, target: m.bots[r.target_slot - 1] } : { none: true };
+  });
+  if (m2) {
+    let tele = '';
+    if (!m2.none) {
+      await page.evaluate((t) => __dba.seek(t, false), m2.r.tic);
+      await sleep(400);
+      await page.keyboard.press(String(m2.r.slot));
+      await sleep(400);
+      tele = await page.evaluate(() => document.querySelector('.tele')?.innerText || '');
+      await page.keyboard.press('Escape');
+    }
+    const r = m2.r || {}, name = String(r.weapon_name).replace(/_/g, ' ').toUpperCase(), tid = String(r.target_slot).padStart(2, '0');
+    results.schema2 = { row: r, telemetry: tele };
+    check(`schema 2 telemetry at tic ${r.tic}, bot ${r.slot}: weapon ${name}, target ${tid} ${m2.target?.code}, sector ${r.sector}`,
+      !m2.none && tele.includes(name) && new RegExp(`TARGET\\s+${tid}\\s+${m2.target.code}`).test(tele)
+        && new RegExp(`SECTOR\\s+${r.sector}\\b`).test(tele), { telemetry: tele });
+  }
 
   /* ---------- 5. phone ---------- */
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });

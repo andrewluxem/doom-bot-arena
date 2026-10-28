@@ -7,7 +7,7 @@ import queue
 import signal
 import time
 
-from engine import game, obituaries, roster
+from engine import game, obituaries, peers, roster
 
 PLAYERS = 8
 
@@ -38,9 +38,12 @@ def _tail(path, n=8):
 
 def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_delay, workdir,
               controller="engine.bots:PlaceholderBot", controller_kwargs=None, video=True, video_from_tic=0,
-              cheats=False, spawnfarthest=True, render_messages=None, dump_frames_every=None,
+              cheats=False, spawnfarthest=True, render_messages=None, scoreboard=None, dump_frames_every=None,
               startup_timeout=120.0, progress_timeout=60.0, barrier_timeout=60.0, log=print):
-    """Run one match into workdir/slot<n>/. Returns run facts; raises MatchFailed after killing everything."""
+    """Run one match into workdir/slot<n>/. Returns run facts; raises MatchFailed after killing everything.
+
+    controller is one import path for every slot or {slot: path}.
+    """
     os.makedirs(workdir, exist_ok=True)
     wad = os.path.join(workdir, "obituaries.wad")
     wad_sha = obituaries.write_wad(wad)
@@ -50,6 +53,7 @@ def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_dela
     host = game.host_args(PLAYERS, port, respawn_delay, cheats=cheats, spawnfarthest=spawnfarthest)
     client = game.client_args(port)
     render_messages = render_messages or {}
+    scoreboard = scoreboard or {}
     dump_frames_every = dump_frames_every or {}
     controller_kwargs = controller_kwargs or {}
 
@@ -57,15 +61,19 @@ def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_dela
     barrier = ctx.Barrier(PLAYERS)
     heartbeat = ctx.Array("i", [-1] * PLAYERS)
     ready = ctx.Queue()
+    table = peers.allocate(ctx)  # (array, lock): label identity requests and answers
     procs = {}
     specs = {}
     for sheet in sheets:
         slot = sheet["slot"]
         specs[slot] = {
             "slot": slot, "duration_tics": duration_tics, "iwad": iwad, "map": map_name, "seed": seed,
-            "args": (host if slot == 1 else client) + game.player_args(sheet["name"], sheet["colorset"]),
+            "args": (host if slot == 1 else client) + game.player_args(
+                sheet["name"], sheet["colorset"], scoreboard=scoreboard.get(slot, game.RENDER["scoreboard"])),
+            "scoreboard": scoreboard.get(slot, game.RENDER["scoreboard"]),
             "wads": [wad], "render_messages": render_messages.get(slot, game.RENDER["messages"]),
-            "controller": controller, "controller_kwargs": controller_kwargs.get(slot, {}),
+            "controller": controller[slot] if isinstance(controller, dict) else controller,
+            "controller_kwargs": controller_kwargs.get(slot, {}),
             "sheet": sheet, "outdir": os.path.join(workdir, f"slot{slot}"), "video": video,
             "video_from_tic": video_from_tic,
             "dump_frames_every": dump_frames_every.get(slot), "barrier_timeout": barrier_timeout,
@@ -74,7 +82,7 @@ def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_dela
     from engine.player import run_slot
     try:
         for slot in roster.SLOTS:
-            p = ctx.Process(target=run_slot, args=(specs[slot], barrier, heartbeat, ready), name=f"slot{slot}")
+            p = ctx.Process(target=run_slot, args=(specs[slot], barrier, heartbeat, ready, table), name=f"slot{slot}")
             p.start()
             procs[slot] = p
             if slot == 1:
@@ -121,4 +129,5 @@ def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_dela
         with open(os.path.join(specs[slot]["outdir"], "meta.json")) as f:
             metas[slot] = json.load(f)
     return {"workdir": workdir, "obituary_wad_sha256": wad_sha, "obituary_wad": wad, "host_args": host,
-            "client_args": client, "metas": metas, "render_messages": {s: specs[s]["render_messages"] for s in specs}}
+            "client_args": client, "metas": metas, "render_messages": {s: specs[s]["render_messages"] for s in specs},
+            "scoreboard": {s: specs[s]["scoreboard"] for s in specs}}

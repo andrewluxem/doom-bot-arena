@@ -1,6 +1,14 @@
 {
   "bundles": [
     {
+      "id": "20261028T064703Z-MAP01-s2042",
+      "map": "MAP01",
+      "iwad": "freedoom2.wad",
+      "date": "2026-10-28T06:47:03Z",
+      "duration_tics": 1050,
+      "path": "sample/20261028T064703Z-MAP01-s2042/"
+    },
+    {
       "id": "20261028T042416Z-MAP01-s1234",
       "map": "MAP01",
       "iwad": "freedoom2.wad",

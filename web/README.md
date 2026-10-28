@@ -1,6 +1,6 @@
 # web/: spectator viewer (Option A)
 
-A static site that replays a match bundle (`docs/MATCH_FORMAT.md`): eight POV videos and the overhead map on one clock, standings, frag timeline, kill feed, single-bot focus. Vite and vanilla JS. `design/tokens.css` and `design/dba.css` are imported unchanged; `src/render.js` ports the `dba.js` renderers to take live per-tic state.
+A static site that replays a match bundle (`docs/MATCH_FORMAT.md`, schema 1, 2 or 3; schema 3's damage counters are not shown yet): eight POV videos and the overhead map on one clock, standings, frag timeline, kill feed, single-bot focus. Vite and vanilla JS. `design/tokens.css` and `design/dba.css` are imported unchanged; `src/render.js` ports the `dba.js` renderers to take live per-tic state.
 
 ```
 npm install
@@ -19,7 +19,7 @@ python3 -m http.server -d dist 8000   # any static server works
 python3 tools/export_sample.py bundles/<id>     # from the repo root; run it in the match image for the same ffmpeg
 ```
 
-The exporter copies the bundle to `public/sample/<id>/` and rewrites `index.json`. If the copy is over 25 MB, it re-encodes the POV videos at crf 32 and records the change in `match.json.sample_reencode`, with the original hashes. The copy still passes `engine/validate_bundle.py`.
+The exporter copies the bundle (with `spots.json` for schema 2) to `public/sample/<id>/` and rewrites `index.json`, newest first, so the viewer opens the newest bundle by default. If the copy is over 25 MB, it re-encodes the POV videos at crf 32 and records the change in `match.json.sample_reencode`, with the original hashes. The copy still passes `engine/validate_bundle.py`.
 
 ## Controls
 
@@ -50,7 +50,9 @@ Servers without byte ranges (`python3 -m http.server`) cannot seek MP4s. The vie
 ## Acceptance
 
 ```
-npm run build && npm run acceptance -- --event 473   # Google Chrome; serves dist/ with python3 -m http.server
+npm run build && npm run acceptance -- --bundle 20261028T042416Z-MAP01-s1234 --event 473   # milestone 1B sample
+npm run acceptance -- --bundle <milestone 2 sample id>                                       # schema 2 sample
+# Google Chrome; serves dist/ with python3 -m http.server
 python3 scripts/contrast.py public/sample/<id>       # numpy + ffmpeg
 ```
 
@@ -59,7 +61,8 @@ python3 scripts/contrast.py public/sample/<id>       # numpy + ffmpeg
 - 16 paused and playing seeks;
 - one frag event on the map, in the kill feed, in the killer's tile, and in the killer's POV frame (pixel-matched against ffmpeg's decode);
 - the keys and clicks without a reload;
-- the 390x844 phone layout.
+- the 390x844 phone layout;
+- on a schema 2 bundle, the focused bot's telemetry shows its selected weapon by name, its target and its sector.
 
 `scripts/contrast.py` measures tile text over every frame of the eight videos.
 
@@ -73,8 +76,12 @@ python3 scripts/contrast.py public/sample/<id>       # numpy + ffmpeg
 - **Kill feed and timeline** show every death at or after `frame0_tic`: frags, telefrags, suicides (`SELF`) and environmental deaths (`ENV`). Without them, the D column would rise with no row to explain it. Pre-roll events are never shown.
 - **Standings** apply `match.json.score.rule` to the events up to the current tic; at the last tic they must equal `score.rows`. Ties keep the previous order.
   - Engine counters (`frags_raw`, `deaths_raw`) are recorded only at the last tic, so the hover text and telemetry label them "at end".
-- **Not recorded in schema 1, so not shown:**
-  - target and sector/zone (telemetry renders them only if `tics.jsonl` rows carry `target` or `sector`);
-  - which weapon is held in slots 1 and 3 (`SG/SSG`, `FIST/SAW`);
+- **Schema 2 fields** (milestone 2A bundles):
+  - **Weapon** is the bot's own selection (`weapon_name`), on the tile footer and in telemetry, with the engine slot beside it. The selection can lead the slot by the switch time. With no selection (no allowed weapon with ammo), telemetry shows the slot's weapon marked `NOT SELECTED`.
+  - **Target** is `target_slot`: the player the bot is engaging, with its colour swatch, id and code.
+  - **Sector** is the engine sector id, with its floor height from `map.json`. The design's named zones do not exist in the data, so none are shown.
+  - **Spot**: for a bot holding a perch or ambush spot (`spots.json` `chosen`), telemetry shows its position and watch angle, and the map draws a dashed square with a tick toward the watch angle.
+- **Not recorded, so not shown:**
+  - which weapon is held in slots 1 and 3 in schema 1 bundles (`SG/SSG`, `FIST/SAW`);
   - per-tic engine counters;
   - the design's "DUEL ▸ 02 KRN" style tags.

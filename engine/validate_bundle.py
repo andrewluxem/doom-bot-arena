@@ -16,9 +16,11 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import bundle, game, obituaries, roster  # noqa: E402
+from engine import bundle, game, obituaries, roster, weapons  # noqa: E402
+from engine.geometry import MapGeometry  # noqa: E402
 
 EVENT_TYPES = ("frag", "telefrag", "suicide", "environmental_death", "respawn")
+TARGET_MEMORY_TICS = 35  # a bot may keep a target it lost sight of; one killed out of view stays up to 1 s
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -49,8 +51,10 @@ def check_match_json(m, map_data):
     p += [f"missing field {k}" for k in required if k not in m]
     if p:
         return p
-    if m["schema_version"] != bundle.SCHEMA_VERSION:
+    if m["schema_version"] not in bundle.SCHEMA_VERSIONS:
         p.append(f"schema_version {m['schema_version']}")
+    if m["schema_version"] >= 2:
+        p += check_match_json_v2(m)
     if m["ticrate"] != game.TICRATE:
         p.append(f"ticrate {m['ticrate']}")
     if not (isinstance(m["duration_tics"], int) and m["duration_tics"] > 0):
@@ -94,11 +98,28 @@ def check_match_json(m, map_data):
     return p
 
 
-def check_rows(rows, n_tics):
+def check_match_json_v2(m):
+    """Schema 2 additions: who controlled each slot, its resolved weapons, the scoreboard setting."""
+    p = []
+    for b in m.get("bots", []):
+        where = f"bots slot {b.get('slot')}"
+        if not isinstance(b.get("controller"), str):
+            p.append(f"{where}: controller missing")
+        res = b.get("weapons_resolved", "missing")
+        if res is not None and (not isinstance(res, list) or any(w not in weapons.NAMES for w in res)):
+            p.append(f"{where}: weapons_resolved {res!r}")
+    render = m.get("render", {})
+    if render.get("scoreboard") is not False or any(render.get("scoreboard_per_slot", [True])):
+        p.append(f"dead-player scoreboard on for some slot: {render.get('scoreboard_per_slot')}")
+    return p
+
+
+def check_rows(rows, n_tics, m=None, map_data=None):
     merged, p = bundle.merge_tics(_by_slot(rows), n_tics)
     if [(r["tic"], r["slot"]) for r in rows] != [(r["tic"], r["slot"]) for r in merged]:
         p.append("tics.jsonl is not sorted by (tic, slot)")
-    fields = {"tic", "slot", "x", "y", "angle", "health", "armor", "weapon", "alive", "behavior", "utility_scores"}
+    version = (m or {}).get("schema_version", 1)
+    fields = bundle.ROW_FIELDS[version]
     prev_alive = {}
     for r in rows:
         where = f"tic {r.get('tic')} slot {r.get('slot')}"
@@ -130,6 +151,97 @@ def check_rows(rows, n_tics):
         if u is not None and (not isinstance(u, dict) or any(k not in roster.BEHAVIORS for k in u)):
             p.append(f"{where}: utility_scores {u!r}")
         prev_alive[r["slot"]] = r["alive"]
+    if version >= 2 and not p:
+        p += check_rows_v2(rows, m, map_data)
+    if version >= 3 and not p:
+        p += check_rows_v3(rows)
+    return p
+
+
+def check_rows_v3(rows):
+    """Damage counters (section 5): non-negative integers, cumulative over the match, so never falling.
+    Dealt and taken do not balance, per tic or over the match (section 5, open finding)."""
+    p, last = [], {}
+    for r in rows:
+        where = f"tic {r['tic']} slot {r['slot']}"
+        vals = (r["hitcount"], r["damagecount"], r["damage_taken"])
+        if not all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in vals):
+            p.append(f"{where}: damage counters {vals}")
+            continue
+        prev = last.get(r["slot"])
+        if prev is not None:
+            if any(a < b for a, b in zip(vals, prev)):
+                p.append(f"{where}: a damage counter fell from {prev} to {vals}")
+        last[r["slot"]] = vals
+    return p
+
+
+def check_rows_v2(rows, m, map_data):
+    """weapon_name, target_slot and sector (docs/MATCH_FORMAT.md section 5).
+
+    The recorded sector is the engine's; it is re-derived from x, y and map.json and must agree
+    except within 1.5 units of a sector boundary, where the two can legitimately differ.
+    """
+    p = []
+    resolved = {b["slot"]: b.get("weapons_resolved") for b in m["bots"]}
+    alive = {(r["tic"], r["slot"]): r["alive"] for r in rows}
+    geo = MapGeometry(map_data)
+    n_sectors = len(map_data["sectors"])
+    checked = boundary = 0
+    for r in rows:
+        where = f"tic {r['tic']} slot {r['slot']}"
+        w = r["weapon_name"]
+        if w is not None and w not in weapons.NAMES:
+            p.append(f"{where}: weapon_name {w!r}")
+        elif w is not None and resolved[r["slot"]] is not None and w not in resolved[r["slot"]]:
+            p.append(f"{where}: weapon_name {w} is not in the bot's weapons_resolved {resolved[r['slot']]}")
+        tgt = r["target_slot"]
+        if tgt is not None:
+            if tgt not in roster.SLOTS or tgt == r["slot"]:
+                p.append(f"{where}: target_slot {tgt!r}")
+            elif not r["alive"]:
+                p.append(f"{where}: dead with target_slot {tgt}")
+            elif not any(alive.get((r["tic"] - k, tgt)) for k in range(TARGET_MEMORY_TICS + 1)):
+                p.append(f"{where}: target_slot {tgt} was not alive in the last {TARGET_MEMORY_TICS} tics")
+        sec = r["sector"]
+        if sec is None:
+            p.append(f"{where}: sector missing")
+            continue
+        if not (isinstance(sec, int) and not isinstance(sec, bool) and 0 <= sec < n_sectors):
+            p.append(f"{where}: sector {sec!r}")
+            continue
+        checked += 1
+        if sec not in geo.sectors_at(r["x"], r["y"]):
+            if geo.near_sector_boundary(r["x"], r["y"]):
+                boundary += 1
+            else:
+                p.append(f"{where}: sector {sec} but ({r['x']}, {r['y']}) lies in {geo.sectors_at(r['x'], r['y'])}")
+    print(f"      sector cross-check: {checked} rows, {boundary} disagreements on a sector boundary (allowed)")
+    return p
+
+
+def check_spots(spots, m, n_tics):
+    p = []
+    modes = ("sightlines_max", "sightlines_min_near_traffic")
+    if spots.get("map") != m["map"] or spots.get("iwad_sha256") != m["iwad"]["sha256"]:
+        p.append("spots.json map or iwad_sha256 differs from match.json")
+    ids = {}
+    for mode, cands in spots.get("candidates", {}).items():
+        if mode not in modes:
+            p.append(f"unknown spot mode {mode}")
+            continue
+        for c in cands:
+            if not all(isinstance(c.get(k), (int, float)) for k in ("id", "x", "y", "score", "watch_angle")):
+                p.append(f"{mode} candidate {c}")
+            ids[(mode, c.get("id"))] = c
+    for c in spots.get("chosen", []):
+        where = f"chosen {c}"
+        if c.get("slot") not in roster.SLOTS or c.get("mode") not in modes:
+            p.append(where)
+        elif (c["mode"], c.get("spot")) not in ids:
+            p.append(f"{where}: spot id not among the candidates")
+        elif not (0 <= c.get("from_tic", -1) < n_tics) or (c.get("to_tic") is not None and not c["from_tic"] <= c["to_tic"] < n_tics):
+            p.append(f"{where}: tic range")
     return p
 
 
@@ -224,12 +336,16 @@ def _by_slot(rows):
 def validate(bundle_dir):
     rep = Report()
     files = ["match.json", "map.json", "tics.jsonl", "events.jsonl"] + [f"pov/slot{s}.mp4" for s in roster.SLOTS]
+    m = None
+    if os.path.isfile(os.path.join(bundle_dir, "match.json")):
+        with open(os.path.join(bundle_dir, "match.json")) as f:
+            m = json.load(f)
+        if m.get("schema_version", 1) >= 2:
+            files.append("spots.json")
     missing = [f for f in files if not os.path.isfile(os.path.join(bundle_dir, f))]
     rep.check("files present", [f"missing {f}" for f in missing])
     if missing:
         return rep, {}
-    with open(os.path.join(bundle_dir, "match.json")) as f:
-        m = json.load(f)
     with open(os.path.join(bundle_dir, "map.json")) as f:
         map_data = json.load(f)
     rows = bundle.read_jsonl(os.path.join(bundle_dir, "tics.jsonl"))
@@ -243,7 +359,10 @@ def validate(bundle_dir):
     n, frame0 = m["duration_tics"], m["frame0_tic"]
     total = frame0 + n
     rep.check(f"tics.jsonl: {total} tics ({frame0} pre-roll + {n}) x 8 slots, no gaps or duplicates, field rules",
-              check_rows(rows, total))
+              check_rows(rows, total, m, map_data))
+    if m["schema_version"] >= 2:
+        with open(os.path.join(bundle_dir, "spots.json")) as f:
+            rep.check("spots.json: candidates and chosen spots", check_spots(json.load(f), m, total))
     rep.check("events.jsonl: types, fields, sources re-parse to the same events", check_events(events, m, total))
     rep.check("deaths pair with telemetry; FRAGCOUNT and DEATHCOUNT reconcile",
               bundle.reconcile(events, rows, m["engine"]))

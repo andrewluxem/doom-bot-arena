@@ -5,7 +5,13 @@ import os
 
 from engine import obituaries, roster
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3  # 2: weapon_name, target_slot, sector, spots.json, per-bot controller; 3: damage counters
+SCHEMA_VERSIONS = (1, 2, 3)  # the validator still reads older bundles
+ROW_FIELDS = {
+    1: {"tic", "slot", "x", "y", "angle", "health", "armor", "weapon", "alive", "behavior", "utility_scores"},
+}
+ROW_FIELDS[2] = ROW_FIELDS[1] | {"weapon_name", "target_slot", "sector"}
+ROW_FIELDS[3] = ROW_FIELDS[2] | {"hitcount", "damagecount", "damage_taken"}
 SCORE_RULE = ("displayed columns count events at tic >= frame0_tic; displayed_frags = kills - suicides; "
               "displayed_deaths = deaths; frags_raw and deaths_raw are engine counters at the last tic")
 

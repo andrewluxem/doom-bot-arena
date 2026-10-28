@@ -14,7 +14,7 @@ import sys
 import time
 import traceback
 
-from engine import game, roster
+from engine import game, peers, roster
 
 EXIT_ERROR, EXIT_GAP = 2, 3
 
@@ -36,7 +36,19 @@ def ffmpeg_cmd(path):
             "-g", str(game.TICRATE), "-r", str(game.TICRATE), "-movflags", "+faststart", path]
 
 
-def run_slot(spec, barrier, heartbeat, ready):
+def own_sector(state, x, y):
+    """Engine sector id of this player's own actor (objects info is used for nothing else)."""
+    best = None
+    for o in state.objects or []:
+        if "DoomPlayer" not in o.name:
+            continue
+        d = abs(o.position_x - x) + abs(o.position_y - y)
+        if d < 1.0 and (best is None or d < best[0]):
+            best = (d, int(o.sector_id))
+    return best[1] if best else None
+
+
+def run_slot(spec, barrier, heartbeat, ready, peers_array=None):
     try:
         os.setsid()
     except OSError:
@@ -47,7 +59,7 @@ def run_slot(spec, barrier, heartbeat, ready):
     log = open(os.path.join(out, "log.txt"), "a", buffering=1)
     meta = {"slot": slot, "vizdoom_version": game.version(), "steps": 0, "gaps": 0}
     try:
-        _run(spec, barrier, heartbeat, ready, log, meta, out)
+        _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array)
         code = 0
     except SlotFailure as e:
         log.write(f"FAIL: {e}\n")
@@ -64,7 +76,7 @@ def run_slot(spec, barrier, heartbeat, ready):
     os._exit(code)
 
 
-def _run(spec, barrier, heartbeat, ready, log, meta, out):
+def _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array):
     slot, n_tics = spec["slot"], spec["duration_tics"]
     sheet = spec["sheet"]
     g = game.make_game(iwad=spec["iwad"], map_name=spec["map"], seed=spec["seed"], args=spec["args"],
@@ -88,6 +100,13 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out):
 
     ctrl = load_controller(spec["controller"], slot=slot, sheet=sheet, seed=spec["seed"],
                            **spec.get("controller_kwargs", {}))
+    writer = None
+    if peers_array is not None:
+        array, lock = peers_array
+        writer = peers.IdentityWriter(array, lock, slot)
+        ctrl.identity = peers.IdentityReader(array, slot)  # read only through engine/personality/perception.py
+    else:
+        ctrl.identity = peers.NoIdentity()
     rows = open(os.path.join(out, "rows.jsonl"), "w")
     notes = open(os.path.join(out, "notifications.jsonl"), "w")
     fragvec = open(os.path.join(out, "fragvec.jsonl"), "w")
@@ -110,10 +129,13 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out):
         v = dict(zip(game.VARIABLES, (float(x) for x in st.game_variables)))
         player_numbers.add(int(v["PLAYER_NUMBER"]))
         alive = v["DEAD"] == 0
+        if writer is not None:
+            writer.answer(t, v["POSITION_X"], v["POSITION_Y"], alive)
+        sector = own_sector(st, v["POSITION_X"], v["POSITION_Y"])
 
-        action, cmds, behavior, utility = ctrl.act(t, st, v)
+        action, cmds, behavior, utility, info = ctrl.act(t, st, v)
         if not alive:
-            behavior, action, cmds = "DEAD", {}, []
+            behavior, action, cmds, info = "DEAD", {}, [], {}
         elif prev_alive is False:
             behavior = "RESPAWNING"
         if behavior not in roster.BEHAVIORS:
@@ -122,9 +144,11 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out):
 
         rows.write(json.dumps({
             "tic": t, "slot": slot,
-            "x": round(v["POSITION_X"], 3), "y": round(v["POSITION_Y"], 3), "angle": round(v["ANGLE"], 3),
+            "x": round(v["POSITION_X"], 3), "y": round(v["POSITION_Y"], 3), "angle": round(v["ANGLE"], 3) % 360.0,
             "health": int(v["HEALTH"]), "armor": int(v["ARMOR"]), "weapon": int(v["SELECTED_WEAPON"]),
             "alive": alive, "behavior": behavior, "utility_scores": utility,
+            "weapon_name": info.get("weapon_name"), "target_slot": info.get("target_slot"), "sector": sector,
+            "hitcount": int(v["HITCOUNT"]), "damagecount": int(v["DAMAGECOUNT"]), "damage_taken": int(v["DAMAGE_TAKEN"]),
         }) + "\n")
         fragvec.write(json.dumps([t] + [int(v[f"PLAYER{i}_FRAGCOUNT"]) for i in range(1, 9)]) + "\n")
         for line in (st.notifications_buffer or "").splitlines():
@@ -152,6 +176,8 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out):
             g.make_action(game.action_vector(action), 1)
             barrier.wait(spec["barrier_timeout"])
 
+    if hasattr(ctrl, "finish"):
+        ctrl.finish(out, n_tics)
     rows.close()
     notes.close()
     fragvec.close()

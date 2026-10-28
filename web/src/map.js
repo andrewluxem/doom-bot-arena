@@ -146,6 +146,19 @@ export class MapView {
       c.stroke();
       c.globalAlpha = 1;
     }
+    for (const b of live) {
+      if (!b.spot) continue; // spots.json: a held perch or ambush spot, with its watch direction
+      const [x, y] = this.pt(b.spot.x, b.spot.y), a = this.heading(b.spot.angle), k = r + 3;
+      c.strokeStyle = col.bot[b.slot - 1];
+      c.lineWidth = 1.5;
+      c.setLineDash([2, 2]);
+      c.strokeRect(x - k, y - k, 2 * k, 2 * k);
+      c.setLineDash([]);
+      c.beginPath();
+      c.moveTo(x + Math.cos(a) * k, y + Math.sin(a) * k);
+      c.lineTo(x + Math.cos(a) * (k + 8), y + Math.sin(a) * (k + 8));
+      c.stroke();
+    }
     c.font = `600 ${opts.ls}px "IBM Plex Mono", ui-monospace, Menlo, monospace`;
     c.textBaseline = 'middle';
     c.lineJoin = 'round';
