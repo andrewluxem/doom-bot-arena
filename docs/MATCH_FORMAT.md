@@ -1,6 +1,6 @@
 # Match bundle format
 
-**schema_version 1.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
+**schema_version 2.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
 
 ```
 bundles/<id>/
@@ -8,8 +8,11 @@ bundles/<id>/
   map.json
   tics.jsonl
   events.jsonl
+  spots.json          (schema 2)
   pov/slot1.mp4 … pov/slot8.mp4
 ```
+
+Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. The validator still accepts schema 1 bundles, such as the viewer's milestone 1B sample.
 
 `id` = `<UTC yyyymmddThhmmssZ>-<map>-s<seed>`, e.g. `20261028T041144Z-MAP01-s1234`.
 
@@ -25,7 +28,7 @@ The runner writes the bundle only if every process ran to the end and every chec
 
 - **Refusal on old ViZDoom.** The runner refuses to start on ViZDoom < 1.3.0. 1.2.4 has no notifications buffer, so it cannot produce `events.jsonl`. It exits 2 with a message saying so.
 - **One IWAD per bundle.** `map.json` must be extracted from the same IWAD file, and therefore the same Freedoom version, as the run. The two Freedoom versions have different MAP01 geometry (1069 vs 1274 linedefs). The IWAD sha256 is recorded twice, as `match.json.iwad.sha256` and `map.json.source.iwad_sha256`, and the validator requires them to match.
-- **Determinism.** The engine is seeded with `set_seed(seed)`, and each scripted bot RNG is seeded from `(seed, slot)`. Runs are not reproducible tic for tic: join order (and so `player_number` and spawn spots) changes between runs with the same seed. Nothing is promised across ViZDoom versions or platforms.
+- **Determinism.** The engine is seeded with `set_seed(seed)`, and every bot RNG (placeholder and personality) is seeded from `(seed, slot)`. Runs are not reproducible tic for tic: join order (and so `player_number` and spawn spots) changes between runs with the same seed. Nothing is promised across ViZDoom versions or platforms.
 - Never source-build ViZDoom on macOS.
 
 ## 2. Match setup
@@ -39,11 +42,17 @@ Host:
 +sv_nocrouch 1 +sv_noexit 1 +viz_nocheat 0 +viz_respawn_delay <s>
 ```
 Clients: `-join 127.0.0.1 -port <p>`.
-Every process: `+name <name> +colorset <n> +cl_bbannounce 0 +show_obituaries 1 -file obituaries.wad`.
+Every process: `+name <name> +colorset <n> +cl_bbannounce 0 +show_obituaries 1 +neverswitchonpickup 1 +sb_deathmatch_enable 0 +cl_showsecretmessage 0 -file obituaries.wad`.
 The exact argument lists are recorded in `match.json.host_args` and `client_args`.
 
+- **Weapon selection.** `neverswitchonpickup` keeps the weapon a controller selected: the engine never swaps it on pickup. Every controller selects with `use <Class>` (`engine/weapons.py`). The engine still switches away from an empty weapon on its own.
+- **Server settings in effect** (printed by the engine on 1.3.2): `dmflags` 4216196, so `sv_weaponstay` and `sv_itemrespawn` are on. Weapons stay where they are; items respawn.
+
 - **Obituary WAD.** `obituaries.wad` is generated at run time by `engine/obituaries.py` (section 6.1), and its sha256 is recorded in `match.json.obituary_wad`.
-- **Render settings.** No HUD, no crosshair, weapon visible, messages off (`set_render_messages(False)`) on every capture client. Recorded per slot in `match.json.render.messages_per_slot`.
+- **Render settings.** No HUD, no crosshair, weapon visible, messages off (`set_render_messages(False)`), dead-player scoreboard off and secret message off on every capture client. Recorded per slot in `match.json.render.messages_per_slot` and `scoreboard_per_slot`.
+  - **Dead-player scoreboard.** While a player's camera is dead, ZDoom draws the deathmatch scoreboard and ViZDoom's "Respawn in 0:0n" line over the view (`ct_chat.cpp`, `hu_scores.cpp`), with engine counters that include the pre-roll. `sb_deathmatch_enable 0` turns both off. The controlled bench checks it with the staged victims: slot 1 renders like a capture client and dies in stages 1 and 3; slot 2 renders the scoreboard as a positive control and dies in stages 2 and 4. A detector counts the board's player-colour swatches (24 pixels wide, stacked at one x) in the raw frames from 5 tics after each death until respawn: 8 rows in every frame of the control, at most 1 in the capture client's.
+  - **Secret message.** "A secret is revealed!" is a mid-screen print that `set_render_messages` does not cover. `cl_showsecretmessage 0` turns it off. It was seen in a probe POV, not by a bench.
+  - **Spawn-protection expiry.** When `sv_respawnprotect` runs out, 3 s after a spawn, the engine drew a 3x5 grey mark at x 271–273, y 15–19 for one dumped frame in one controlled-bench run. The message-area check now compares only frames after the observers' own spawn protection has ended. Capture POVs can contain this mark; it is not text.
   - The controlled bench checks this with two static observers facing walls. The messages-off observer's top 64 rows changed by 0 pixels during each of 5 messages, including 4 obituaries. The messages-on control changed by 976–3679 pixels each time, all inside x 0–269, y 0–24.
 - **Respawn delay.** `viz_respawn_delay` is a `CVAR_SERVERINFO` int in seconds, set once on the host (default 2). The bench verifies it: every death at tic `d` respawns at `d + 35·delay + 1`, which is +71 for 2 s.
 - **Spawn protection.** `sv_respawnprotect` gives 3 s of invulnerability on every spawn, including the first.
@@ -93,8 +102,8 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
   "vizdoom_version": "1.3.2",
   "platform": {"os": "Linux-…-x86_64-with-glibc2.36", "python": "3.12.16", "ffmpeg": "ffmpeg version 5.1.9-0+deb12u1 …"},
   "duration_tics": 2100, "frame0_tic": 176, "respawn_delay_s": 2,
-  "controller": "engine.bots:PlaceholderBot",
-  "bots": [{"slot": 1, "code": "VEX", "name": "Vex", "archetype": "rusher", "colorset": 0, "player_number": 0}],
+  "bots": [{"slot": 1, "code": "VEX", "name": "Vex", "archetype": "rusher", "colorset": 0, "player_number": 0,
+            "controller": "engine.personality.controller:PersonalityBot", "weapons_resolved": ["super_shotgun", "shotgun"]}],
   "weapons_present": ["chaingun", "chainsaw", "plasma_rifle", "rocket_launcher", "shotgun", "super_shotgun"],
   "engine": [{"slot": 1, "player_number": 0, "fragcount": 0, "deathcount": 1}],
   "score": {
@@ -106,12 +115,16 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
   "obituary_wad": {"sha256": "74149d45…", "keys": 31, "format": "OBIT|<key>|<victim>|<killer>"},
   "notifications": {"unknown_lines": 95, "unattributed_obituaries": 0},
   "sync": {"barrier": true, "steps": 2276, "gaps": 0, "frag_vector_mismatches": 0},
-  "render": {"hud": false, "crosshair": false, "weapon": true, "messages": false, "messages_per_slot": [false, false, false, false, false, false, false, false]},
+  "render": {"hud": false, "crosshair": false, "weapon": true, "messages": false, "scoreboard": false, "secret_message": false,
+             "messages_per_slot": [false, false, false, false, false, false, false, false],
+             "scoreboard_per_slot": [false, false, false, false, false, false, false, false]},
   "pov": [{"slot": 1, "path": "pov/slot1.mp4", "sha256": "…"}],
   "host_args": ["-host 8", "…"], "client_args": ["-join 127.0.0.1", "…"]
 }
 ```
 
+- **`bots[].controller`** is the import path that drove the slot. In milestone 2A, VEX, HEX and NUL run `engine.personality.controller:PersonalityBot` and the other five `engine.bots:PlaceholderBot` (`--personalities` on the runner).
+- **`bots[].weapons_resolved`** is the sheet's `weapons.allowed`, ordered by `weapons.weights` and kept only if the map has the weapon (`weapons_present`, plus the fist and pistol every player spawns with). It is `null` for placeholders, which do not follow their sheet's weapons. Schema 1 had one top-level `controller` instead.
 - **`player_number`** is the engine `PLAYER_NUMBER` (0-based), recorded as each slot's own process observed it.
   - It must be constant per slot and distinct across slots.
   - It follows join order, not slot order, and differs between runs.
@@ -146,7 +159,12 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
 One line per `(tic, slot)`, sorted by `tic`, then `slot`:
 
 ```json
-{"tic":0,"slot":3,"x":-144.0,"y":-1024.0,"angle":0.0,"health":100,"armor":0,"weapon":2,"alive":true,"behavior":"ROAMING","utility_scores":null}
+{"tic":585,"slot":3,"x":2063.964,"y":-226.008,"angle":245.215,"health":100,"armor":0,"weapon":3,"alive":true,"behavior":"STALKING","utility_scores":{"IN_COMBAT":0.5,"HUNTING":0.015,"ROAMING":0.09,"STALKING":0.75,"HOLDING_ANGLE":0.0,"COLLECTING_ARMOR":0.049,"COLLECTING_HEALTH":0.0,"FLEEING":0.0},"weapon_name":"rocket_launcher","target_slot":1,"sector":60}
+```
+
+NUL has just picked up the rocket launcher and selected it; the engine still holds the shotgun (slot 3) while it switches.
+
+```
 ```
 
 | field | source | notes |
@@ -154,12 +172,17 @@ One line per `(tic, slot)`, sorted by `tic`, then `slot`:
 | `x`, `y` | `POSITION_X/Y` | map units, 3 decimals |
 | `angle` | `ANGLE` | degrees [0, 360), Doom convention: 0 = east, counter-clockwise |
 | `health`, `armor` | `HEALTH`, `ARMOR` | int; health ≤ 0 while dead (−999900 after a telefrag) |
-| `weapon` | `SELECTED_WEAPON` | engine weapon slot 0–9. Slots 1 and 3 hold two weapons each; schema 1 does not say which one |
+| `weapon` | `SELECTED_WEAPON` | engine weapon slot 0–9. Slots 1 and 3 hold two weapons each, so it does not say which |
 | `alive` | `not DEAD` | |
 | `behavior` | controller | only the values in `characters/README.md`; `DEAD`/`RESPAWNING` set by the runner as in section 3 |
-| `utility_scores` | controller | `{BEHAVIOR: float}` or `null`. Milestone 1A placeholder bots always write `null` |
+| `utility_scores` | controller | `{BEHAVIOR: float}` or `null`. Personality bots write the eight chooseable behaviors' weighted scores from their last 10 Hz decision; placeholders write `null` |
+| `weapon_name` | controller | schema 2. The weapon the bot itself last selected (`characters/README.md` names), or `null` before it has selected one or while it holds no usable allowed weapon. It can lead `weapon` by the switch time (about 15 tics) and differ from it after the engine switches away from an empty weapon. For personality bots it is always one of `bots[].weapons_resolved` |
+| `target_slot` | controller | schema 2. The slot the bot is engaging: the enemy it is aiming at, from the first tic it is in view until 0.6 s after it leaves view, or `null`. Personality bots name a target only while they may fight it (an ambusher's fire window, `engage_health_min`). A placeholder names the nearest visible player it is shooting at |
+| `sector` | engine | schema 2. Engine sector id of the player's own actor (`state.objects`, used for nothing else). Sector ids are `map.json` `sectors` indices |
 
-Each process writes only its own slot's rows. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
+Each process writes only its own slot's rows.
+
+**Target identity.** ViZDoom label object ids differ between processes, so a visible `DoomPlayer` label is named by matching its position to a per-tic table where every process publishes its own position (`engine/peers.py`, double-buffered by tic parity behind the barrier). The table is used to name players that are already visible and for nothing else; perception uses the labels buffer only. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
 
 ## 6. events.jsonl
 
@@ -231,8 +254,29 @@ Written by `tools/extract_map.py` from the run's IWAD, which reads Doom-format m
 - `weapons`, with raw flags, `multiplayer_only` (flag 0x10) and `in_deathmatch` at the match skill.
 - `weapons_present`.
 - `barrels`.
+- Since `map_format_version` 2: linedef `exit` (Doom specials 11, 51, 52, 124; navigation treats them as walls), `items` (health, armor, ammo, megasphere and berserk things with their `class`, which the sheets' `items.weights` use), and `teleport_destinations`.
 
 The IWAD rule from section 1 applies: same file as the run, sha256 recorded in both places.
+
+## 7a. spots.json (schema 2)
+
+Spot candidates for the stationary styles and the spots bots chose (`engine/personality/spots.py`).
+
+```jsonc
+{"spots_version": 1, "map": "MAP01", "iwad_sha256": "a8772e08…",
+ "params": [{"mode": "sightlines_max", "range": [500, 1500], "rays": 72, "ray_max": 2048.0, "lattice": 64, "candidates_scored": 584},
+            {"mode": "sightlines_min_near_traffic", "range": [200, 600], "rays": 72, "ray_max": 2048.0, "lattice": 64, "candidates_scored": 584}],
+ "candidates": {"sightlines_max": [{"id": 1309, "x": 1112.0, "y": -312.0, "sector": 165, "floor": -64, "score": 1.0, "watch_angle": 295.0}, "…"],
+                "sightlines_min_near_traffic": [{"id": 1993, "x": 1560.0, "y": -1080.0, "sector": 178, "floor": -96, "score": 1.0, "watch_angle": 140.0}, "…"]},
+ "chosen": [{"slot": 3, "code": "NUL", "mode": "sightlines_min_near_traffic", "spot": 1507, "x": 1240.0, "y": -1080.0, "angle": 45.0, "from_tic": 0, "to_tic": 233},
+            {"slot": 6, "code": "HEX", "mode": "sightlines_max", "spot": 1452, "x": 1176.0, "y": 1096.0, "angle": 185.0, "from_tic": 71, "to_tic": 2275}]}
+```
+
+- Candidates are nav-graph nodes on a 64-unit lattice. Sight is 72 rays from eye height against `map.json` linedefs: a one-sided line, a closed door, or a two-sided line whose far floor is above (or ceiling below) eye height stops a ray. `score` is normalised to 1 for the best candidate; at most 40 are kept per mode, no two closer than 128 units.
+  - `sightlines_max`: mean ray length clipped at the far end of the bot's `preferred_range`.
+  - `sightlines_min_near_traffic`: `sqrt(covered traffic) × (1 − exposure)² × sqrt(1 − own traffic)`. Traffic counts how often a node lies on the shortest path between two of the deathmatch starts, weapons and items; covered traffic is the traffic visible from the spot inside the bot's `preferred_range`; exposure is mean ray length clipped at 1024.
+- `chosen` lists every spot a bot picked, from the tic it picked it to the tic it left it (`to_tic` is the last tic, inclusive). `angle` is the candidate's `watch_angle`.
+- Tables are cached by IWAD sha256, map, nav-graph version and parameters in `<out>/.cache/`.
 
 ## 8. POV video
 
@@ -247,8 +291,13 @@ ffmpeg -f rawvideo -pix_fmt rgb24 -s 320x240 -r 35 -i - -an -c:v libx264 -preset
 
 The runner applies these before writing the bundle (exit 4 and no bundle if any fails), and `engine/validate_bundle.py` re-derives them from the bundle files alone:
 
-- **Files.** Every file is present. `match.json` fields and types are valid. `frame0_tic` follows the section 3 formula for `respawn_delay_s`, and `sync.steps` = `frame0_tic + duration_tics`. The IWAD sha256 matches `map.json`. The obituary WAD sha256 matches what `engine/obituaries.py` generates. `sync` shows the barrier with 0 gaps. Message rendering is off for every slot.
+- **Files.** Every file is present (`spots.json` from schema 2). `match.json` fields and types are valid. `frame0_tic` follows the section 3 formula for `respawn_delay_s`, and `sync.steps` = `frame0_tic + duration_tics`. The IWAD sha256 matches `map.json`. The obituary WAD sha256 matches what `engine/obituaries.py` generates. `sync` shows the barrier with 0 gaps. Message rendering is off for every slot.
 - **Telemetry.** `tics.jsonl` is a complete `(tic, slot)` grid over tics `0 … frame0_tic + duration_tics − 1` with no duplicates, and its values follow section 5. `DEAD`/`RESPAWNING` are consistent with `alive`. The behavior vocabulary matches `characters/README.md`.
+- **Schema 2 fields.**
+  - `weapon_name` is a weapon name or `null`, and for a bot with `weapons_resolved` one of those.
+  - `target_slot` is `null` or another slot, only on alive rows, and that slot was alive at some tic in the last 35.
+  - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point, except within 1.5 units of a sector boundary (the validator prints how many such rows it allowed).
+  - The scoreboard is off for every slot, every bot has a `controller` and `weapons_resolved`, and `spots.json` candidates and chosen spots are well formed.
 - **Events.** Every death event's `source` re-parses to the same event. Event counts match.
 - **Pairing.**
   - Every `alive` true→false in a slot's rows has exactly one death event for that slot at that tic.
@@ -270,7 +319,7 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
 |---|---|---|
 | Parser unit tests | `make test` | `make test` (in `.venv`) or `make docker-test` |
 | Image | | `make image` |
-| Smoke and controlled benches | `make bench` | `make docker-bench` |
+| Smoke, controlled and personality benches | `make bench` | `make docker-bench` |
 | Spawn-telefrag experiment | `make bench-spawn` | |
 | One match | `make match TICS=2100 SEED=1234` | `make docker-match TICS=2100 SEED=1234` |
 | Validate | `make validate BUNDLE=bundles/<id>` | `make docker-validate BUNDLE=…` |
@@ -281,4 +330,4 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
   - malformed `OBIT` lines;
   - stock obituary text, which must be rejected and never guessed: the lines observed in section 6.2, and every stock English string of the installed engine and IWAD.
 - **Smoke bench:** 8 placeholder bots to tic 300. Frag vectors must agree across all processes at every tic.
-- **Controlled bench:** the staged weapon kill, teleporter telefrag, self-kill and barrel kill, plus the message-area check. It needs Freedoom 0.13's MAP01, because the teleporter coordinates are specific to it.
+- **Controlled bench:** the staged weapon kill, teleporter telefrag, self-kill and barrel kill, plus the message-area and dead-player scoreboard checks. It needs Freedoom 0.13's MAP01, because the teleporter coordinates are specific to it.

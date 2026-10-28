@@ -10,15 +10,22 @@ WIDTH, HEIGHT = 320, 240
 VARIABLES = [
     "PLAYER_NUMBER", "FRAGCOUNT", "DEATHCOUNT", "DEAD", "HEALTH", "ARMOR",
     "POSITION_X", "POSITION_Y", "ANGLE", "SELECTED_WEAPON",
-] + [f"PLAYER{i}_FRAGCOUNT" for i in range(1, 9)]
+] + [f"PLAYER{i}_FRAGCOUNT" for i in range(1, 9)] + [
+    "POSITION_Z", "PITCH", "SELECTED_WEAPON_AMMO",
+] + [f"WEAPON{i}" for i in range(10)] + [f"AMMO{i}" for i in range(10)]
+# WEAPONn is the number of weapons owned in slot n (2 in slot 3 with both shotguns); AMMOn is the ammo
+# of slot n's weapons. Probed on 1.3.2.
 
 BUTTONS = [
     "ATTACK", "USE", "MOVE_FORWARD", "MOVE_BACKWARD", "MOVE_LEFT", "MOVE_RIGHT",
-    "TURN_LEFT_RIGHT_DELTA",
+    "TURN_LEFT_RIGHT_DELTA", "LOOK_UP_DOWN_DELTA", "SPEED",
 ]
 
-# Recorded in match.json; message rendering stays off so obituary text never reaches POV video.
-RENDER = {"hud": False, "crosshair": False, "weapon": True, "messages": False}
+# Recorded in match.json. Message rendering stays off so obituary text never reaches POV video; the
+# deathmatch scoreboard (with ViZDoom's "Respawn in" line) and the mid-screen "A secret is revealed!"
+# are off so frames show only the world and the weapon.
+RENDER = {"hud": False, "crosshair": False, "weapon": True, "messages": False, "scoreboard": False,
+          "secret_message": False}
 
 
 def version():
@@ -59,8 +66,13 @@ def client_args(port):
     return ["-join 127.0.0.1", f"-port {port}"]
 
 
-def player_args(name, colorset):
-    return [f"+name {name}", f"+colorset {colorset}", "+cl_bbannounce 0", "+show_obituaries 1"]
+def player_args(name, colorset, scoreboard=False):
+    """neverswitchonpickup keeps the weapon the controller selected: the engine never swaps it on pickup.
+    sb_deathmatch_enable gates ZDoom's dead-player scoreboard and its "Respawn in" line (hu_scores.cpp).
+    cl_showsecretmessage gates the mid-screen secret message, which set_render_messages does not."""
+    return [f"+name {name}", f"+colorset {colorset}", "+cl_bbannounce 0", "+show_obituaries 1",
+            "+neverswitchonpickup 1", f"+sb_deathmatch_enable {1 if scoreboard else 0}",
+            f"+cl_showsecretmessage {1 if RENDER['secret_message'] else 0}"]
 
 
 def make_game(*, iwad, map_name, seed, args, wads, render_messages=False):
@@ -80,6 +92,8 @@ def make_game(*, iwad, map_name, seed, args, wads, render_messages=False):
     g.set_render_weapon(RENDER["weapon"])
     g.set_render_messages(render_messages)
     g.set_labels_buffer_enabled(True)
+    g.set_objects_info_enabled(True)  # only for the player's own actor (its engine sector); never for enemies
+    g.set_sectors_info_enabled(True)
     g.set_notifications_buffer_enabled(True)
     g.set_notifications_buffer_size(1)  # exactly the lines printed during the tic just simulated
     g.set_available_buttons([getattr(vzd.Button, b) for b in BUTTONS])

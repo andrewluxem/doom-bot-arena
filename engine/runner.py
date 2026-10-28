@@ -24,8 +24,48 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import bundle, game, match, obituaries, roster  # noqa: E402
+from engine import bundle, game, match, obituaries, roster, weapons  # noqa: E402
 from tools import extract_map  # noqa: E402
+
+PLACEHOLDER = "engine.bots:PlaceholderBot"
+PERSONALITY = "engine.personality.controller:PersonalityBot"
+MILESTONE_2A = "VEX,HEX,NUL"  # the other five play as placeholders until milestone 2B
+
+
+def controllers(sheets, codes, map_data, cache_dir):
+    """Controller path and kwargs per slot: the personality engine for `codes`, placeholders otherwise."""
+    paths, kwargs, resolved = {}, {}, {}
+    for sh in sheets:
+        slot = sh["slot"]
+        if sh["code"] in codes:
+            paths[slot] = PERSONALITY
+            kwargs[slot] = {"map_data": map_data, "cache_dir": cache_dir}
+            resolved[slot] = weapons.resolve(sh["weapons"]["allowed"], sh["weapons"]["weights"],
+                                             map_data["weapons_present"])
+        else:
+            paths[slot] = PLACEHOLDER
+            kwargs[slot] = {"map_data": map_data}
+            resolved[slot] = None  # placeholders do not follow their sheet's weapons
+    return paths, kwargs, resolved
+
+
+def spots_json(capture_dir, map_data, sheets, tables):
+    """Spot candidates per mode and every spot a bot chose (written by its controller), for spots.json."""
+    from engine.personality import spots
+    chosen = []
+    for sh in sheets:
+        path = os.path.join(capture_dir, f"slot{sh['slot']}", "spots_chosen.json")
+        if os.path.isfile(path):
+            with open(path) as f:
+                chosen += json.load(f)
+    chosen.sort(key=lambda c: (c["from_tic"], c["slot"]))
+    params, candidates = [], {}
+    for t in tables.values():
+        params += t["params"]
+        candidates.update(t["candidates"])
+    return {"spots_version": spots.VERSION, "map": map_data["source"]["map"],
+            "iwad_sha256": map_data["source"]["iwad_sha256"], "params": params,
+            "candidates": candidates, "chosen": chosen}
 
 
 def sha256_file(path):
@@ -101,6 +141,8 @@ def main(argv=None):
     p.add_argument("--out", default="bundles")
     p.add_argument("--startup-timeout", type=float, default=120)
     p.add_argument("--progress-timeout", type=float, default=60)
+    p.add_argument("--personalities", default=MILESTONE_2A,
+                   help="codes driven by the personality engine; the rest are placeholders (default %(default)s)")
     args = p.parse_args(argv)
 
     err = preflight()
@@ -121,6 +163,15 @@ def main(argv=None):
     bundle_dir = os.path.join(args.out, match_id)
     os.makedirs(capture_dir)
     log_file = open(os.path.join(capture_dir, "runner.log"), "w", buffering=1)
+    codes = {c.strip().upper() for c in args.personalities.split(",") if c.strip()}
+    unknown = codes - {sh["code"] for sh in sheets}
+    if unknown:
+        print(f"runner: refusing to run: unknown personality codes {sorted(unknown)}", file=sys.stderr)
+        return 2
+    cache_dir = os.path.join(args.out, ".cache")
+    paths, ctrl_kwargs, resolved = controllers(sheets, codes, map_data, cache_dir)
+    from engine import personality
+    _, spot_tables = personality.prepare(map_data, cache_dir, [sh for sh in sheets if sh["code"] in codes])
 
     def log(msg):
         print(msg, flush=True)
@@ -133,7 +184,7 @@ def main(argv=None):
         capture = match.run_match(
             sheets=sheets, iwad=iwad, map_name=args.map.upper(), seed=args.seed,
             duration_tics=total, video_from_tic=frame0, port=args.port, respawn_delay=args.respawn_delay,
-            workdir=capture_dir, startup_timeout=args.startup_timeout,
+            workdir=capture_dir, controller=paths, controller_kwargs=ctrl_kwargs, startup_timeout=args.startup_timeout,
             progress_timeout=args.progress_timeout, log=log)
     except match.MatchFailed as e:
         log(f"FAILED: {e}")
@@ -157,6 +208,9 @@ def main(argv=None):
     bundle.write_tics(os.path.join(bundle_dir, "tics.jsonl"), data["rows"])
     bundle.write_jsonl(os.path.join(bundle_dir, "events.jsonl"), data["events"])
     extract_map.write_map_json(map_data, os.path.join(bundle_dir, "map.json"))
+    with open(os.path.join(bundle_dir, "spots.json"), "w") as f:
+        json.dump(spots_json(capture_dir, map_data, sheets, spot_tables), f, separators=(",", ":"))
+        f.write("\n")
 
     by_slot = {s["slot"]: s for s in sheets}
     match_json = {
@@ -174,8 +228,8 @@ def main(argv=None):
         "frame0_tic": frame0,
         "respawn_delay_s": args.respawn_delay,
         "skill": game.SKILL,
-        "controller": "engine.bots:PlaceholderBot",
-        "bots": [{**roster.identity(by_slot[s]), "player_number": data["numbers"][s]} for s in roster.SLOTS],
+        "bots": [{**roster.identity(by_slot[s]), "player_number": data["numbers"][s], "controller": paths[s],
+                  "weapons_resolved": resolved[s]} for s in roster.SLOTS],
         "weapons_present": map_data["weapons_present"],
         "engine": data["engine"],
         "score": {"rule": bundle.SCORE_RULE, "rows": bundle.score_rows(data["events"], data["engine"], frame0)},
@@ -187,7 +241,8 @@ def main(argv=None):
         "sync": {"barrier": True, "steps": total,
                  "gaps": sum(m["gaps"] for m in capture["metas"].values()),
                  "frag_vector_mismatches": len(data["mismatches"])},
-        "render": {**game.RENDER, "messages_per_slot": [capture["render_messages"][s] for s in roster.SLOTS]},
+        "render": {**game.RENDER, "messages_per_slot": [capture["render_messages"][s] for s in roster.SLOTS],
+                   "scoreboard_per_slot": [capture["scoreboard"][s] for s in roster.SLOTS]},
         "pov": [{"slot": s, "path": f"pov/slot{s}.mp4", "sha256": sha256_file(os.path.join(bundle_dir, "pov", f"slot{s}.mp4"))}
                 for s in roster.SLOTS],
         "host_args": capture["host_args"],

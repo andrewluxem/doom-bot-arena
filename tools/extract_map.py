@@ -13,7 +13,7 @@ import os
 import struct
 import sys
 
-MAP_FORMAT_VERSION = 1
+MAP_FORMAT_VERSION = 2  # 2: linedef `exit`, `items`, `teleport_destinations`
 
 # Doom II / Freedoom Phase 2 weapon things. The pistol has no thing; every player spawns with it.
 WEAPON_THINGS = {
@@ -25,7 +25,21 @@ WEAPON_THINGS = {
     2004: "plasma_rifle",
     2006: "bfg",
 }
+# Doom II / Freedoom Phase 2 pickups, by the class the character sheets weight them with (items.weights).
+ITEM_THINGS = {
+    2011: ("Stimpack", "health"), 2012: ("Medikit", "health"), 2014: ("HealthBonus", "health"),
+    2013: ("Soulsphere", "health"),
+    2018: ("GreenArmor", "armor"), 2019: ("BlueArmor", "armor"), 2015: ("ArmorBonus", "armor"),
+    83: ("Megasphere", "megasphere"), 2023: ("Berserk", "berserk"),
+    2007: ("Clip", "ammo"), 2048: ("ClipBox", "ammo"), 2008: ("Shell", "ammo"), 2049: ("ShellBox", "ammo"),
+    2010: ("RocketAmmo", "ammo"), 2046: ("RocketBox", "ammo"), 2047: ("Cell", "ammo"), 17: ("CellPack", "ammo"),
+    8: ("Backpack", "ammo"),
+}
+# Exit linedef specials (Doom format): S1 exit, S1 secret exit, W1 exit, W1 secret exit. With sv_noexit
+# using one kills the player (OB_EXIT), so navigation treats them as walls.
+EXIT_SPECIALS = {11, 51, 52, 124}
 DEATHMATCH_START = 11
+TELEPORT_DEST = 14  # a teleporter line sends the player to the destination in the sector tagged like it
 PLAYER_STARTS = {1: 1, 2: 2, 3: 3, 4: 4}
 EXPLOSIVE_BARREL = 2035
 
@@ -135,6 +149,7 @@ def extract(iwad_path, map_name, skill=3):
             "two_sided": back != 0xFFFF,
             "impassable": bool(flags & LINEDEF_FLAGS["impassable"]),
             "special": special,
+            "exit": special in EXIT_SPECIALS,
             "tag": tag,
             "front_sector": side_sector(front),
             "back_sector": side_sector(back),
@@ -143,7 +158,7 @@ def extract(iwad_path, map_name, skill=3):
     sectors = [{"id": i, "floor": fl, "ceiling": ce, "light": light, "special": sp, "tag": tag}
                for i, (fl, ce, _, _, light, sp, tag) in enumerate(sectors_raw)]
 
-    dm_starts, player_starts, weapons, barrels = [], [], [], []
+    dm_starts, player_starts, weapons, barrels, items, teleport_dests = [], [], [], [], [], []
     for idx, (x, y, angle, ttype, flags) in enumerate(things_raw):
         if ttype == DEATHMATCH_START:
             dm_starts.append({"thing": idx, "x": x, "y": y, "angle": angle})
@@ -161,6 +176,12 @@ def extract(iwad_path, map_name, skill=3):
             })
         elif ttype == EXPLOSIVE_BARREL:
             barrels.append({"thing": idx, "x": x, "y": y, "in_deathmatch": spawns_in_deathmatch(flags, skill)})
+        elif ttype == TELEPORT_DEST:
+            teleport_dests.append({"thing": idx, "x": x, "y": y, "angle": angle})
+        elif ttype in ITEM_THINGS:
+            name, cls = ITEM_THINGS[ttype]
+            items.append({"thing": idx, "type": ttype, "name": name, "class": cls, "x": x, "y": y,
+                          "in_deathmatch": spawns_in_deathmatch(flags, skill)})
 
     xs = [v[0] for v in vertexes]
     ys = [v[1] for v in vertexes]
@@ -182,6 +203,8 @@ def extract(iwad_path, map_name, skill=3):
         "weapons": weapons,
         "weapons_present": sorted({w["name"] for w in weapons if w["in_deathmatch"]}),
         "barrels": barrels,
+        "items": items,
+        "teleport_destinations": teleport_dests,
     }
 
 
@@ -223,6 +246,13 @@ def main(argv=None):
               f"  flags=0x{w['flags']:03x} mp_only={w['multiplayer_only']} in_dm={w['in_deathmatch']}")
     print(f"weapons present in deathmatch: {', '.join(m['weapons_present']) or 'none'}")
     print(f"explosive barrels: {len(m['barrels'])} ({sum(b['in_deathmatch'] for b in m['barrels'])} in deathmatch)")
+    exits = [l["id"] for l in m["linedefs"] if l["exit"]]
+    print(f"exit linedefs: {exits or 'none'}")
+    by_class = {}
+    for it in m["items"]:
+        if it["in_deathmatch"]:
+            by_class[it["class"]] = by_class.get(it["class"], 0) + 1
+    print(f"items in deathmatch: {by_class}")
     print(f"wrote {args.out}")
     return 0
 

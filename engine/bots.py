@@ -1,14 +1,22 @@
-"""Placeholder bot for milestone 1A.
+"""Placeholder bot (milestone 1A filler).
 
 Not the personality engine: it only uses the sheet's max turn rate. It roams,
 turns away when stuck, and shoots at the nearest visible player. Its RNG is
 seeded from (match seed, slot). utility_scores is always null.
+
+Since milestone 2A every player runs with neverswitchonpickup, so the placeholder
+selects its own weapon: the best one it holds with ammo, in FILLER_ORDER. That
+order is the filler's, not its sheet's.
 """
 
 import math
 import random
 
+from engine.peers import NoPeers
+from engine.weapons import Armory
+
 ENEMY = "DoomPlayer"
+FILLER_ORDER = ("plasma_rifle", "super_shotgun", "chaingun", "shotgun", "rocket_launcher", "chainsaw", "pistol", "fist")
 
 
 def wrap180(a):
@@ -16,8 +24,10 @@ def wrap180(a):
 
 
 class PlaceholderBot:
-    def __init__(self, slot, sheet, seed):
+    def __init__(self, slot, sheet, seed, map_data=None):
         self.rng = random.Random(f"{seed}:{slot}")
+        self.armory = Armory((map_data or {}).get("weapons", []))
+        self.peers = NoPeers()
         self.max_turn = float(sheet["perception"]["max_turn_deg_per_tic"])
         self.trail = []
         self.turn_left = 0
@@ -27,6 +37,10 @@ class PlaceholderBot:
 
     def act(self, tic, state, v):
         x, y, ang = v["POSITION_X"], v["POSITION_Y"], v["ANGLE"]
+        self.armory.update(tic, v)
+        best = next((w for w in FILLER_ORDER if self.armory.usable(w, v)), "fist")
+        cmds = self.armory.select(tic, best, v) if v["DEAD"] == 0 else []
+        info = {"weapon_name": self.armory.chosen, "target_slot": None}
         enemy = self._nearest_enemy(state, x, y)
         if enemy is not None:
             ex, ey, dist = enemy
@@ -36,8 +50,9 @@ class PlaceholderBot:
             if dist > 256:
                 action["MOVE_FORWARD"] = 1
             self._strafe(action)
-            return action, [], "IN_COMBAT", None
-        return self._roam(tic, x, y), [], "ROAMING", None
+            info["target_slot"] = self.peers.identify(tic, ex, ey)
+            return action, cmds, "IN_COMBAT", None, info
+        return self._roam(tic, x, y), cmds, "ROAMING", None, info
 
     def _nearest_enemy(self, state, x, y):
         best = None
