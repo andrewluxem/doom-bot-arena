@@ -126,6 +126,27 @@ Fit run `fit-2d` on eval-2c (MAP10 and E1M5, seeds 401–405; VEX's kill distanc
 
 Fitted on the same matches they are scored on, these are optimistic; the 2D holdout (seeds 501–505) is the test.
 
+### Milestone 2D holdout
+
+Five matches per map at seeds 501–505 (`make docker-eval-2d`, bundles/eval-2d), with the fit-2d thresholds, the item-timing fix, and spots scored by eval-2c traffic (moving rows only). Acceptance is judged on these matches alone. Roster pass is the other seven's bot-matches passing the bot's threshold (n/a left out); a metric separates on a map at 20% or less.
+
+| bot | gating metric | met E1M5 + MAP10 | roster pass E1M5 | roster pass MAP10 | gates |
+|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 104` | 0 + 0 = 0/10 | 5/28 (18%) | 5/29 (17%) | no: VEX fails it |
+| KRN | `item_timing_hit_rate > 0.5` | 1 + 2 = 3/10 (n/a in 4 E1M5 matches) | 0/5 | 0/18 | no: met 3/10 |
+| NUL | `distance_traveled_rank <= 2` | 4 + 5 = 9/10 | 6/35 (17%) | 5/35 (14%) | **yes** |
+| NUL | `kills_from_hold_share >= 0.3` | 2 + 4 = 6/10 | 4/33 (12%) | 3/34 (9%) | no: met 6/10 |
+| ASH | `melee_damage_share == 1.0` | 5 + 5 = 10/10 | 0/33 | 0/35 | **yes** |
+| ORB | `engagement_distance_in_band_share > 0.365` | 4 + 4 = 8/10 | 0/34 | 11/35 (31%) | no: MAP10 roster over 20% |
+| HEX | `stationary_share > 0.56` | 5 + 5 = 10/10 | 8/35 (23%) | 2/35 (6%) | no: E1M5 roster over 20% |
+| PYR | `third_party_kill_share >= 0.6` | 3 + 0 = 3/10 | 2/33 (6%) | 2/35 (6%) | no: met 3/10 |
+| PYR | `first_contact_avoidance_share >= 0.6` | 5 + 5 = 10/10 | 0/34 | 0/35 | **yes** |
+| ZED | `behavior_switches_per_minute > 6` | 5 + 5 = 10/10 | 21/35 (60%) | 24/35 (69%) | no: the roster passes it |
+
+KRN's item timing after the 2D fix: 18 of 44 pickups of a respawned item within 70 tics of the respawn on MAP10 (2C: 3 of 43), 2 of 2 on E1M5 (2C: 0 of 10); median latency 140 and 0 tics (2C: 1725 and 1900). It is still n/a in 4 of 5 E1M5 matches. KRN is at full health most of the time there, so it cannot take the timed health items, and the map's one GreenArmor is unreachable from the nav graph (`thing_node` finds no node). In seed 501 KRN spawned at (−1432, 720), outside the largest nav region, and never moved for the whole match: COLLECTING_ARMOR with no reachable armor, no pocket exit taken. That bug is not fixed in milestone 2D.
+
+Accepted: NUL, ASH and PYR. Behavior distributions: 24 of 28 pairs are at least 0.3 apart in 8 of 10 matches; ASH/VEX (0/10, median 0.15), ORB/ZED (3/10), KRN/PYR (6/10) and PYR/VEX (7/10) are not.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.
