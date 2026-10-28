@@ -13,7 +13,7 @@ SLOTS = range(1, 9)
 
 # The only values allowed in tics.jsonl `behavior` (characters/README.md).
 BEHAVIORS = ("IN_COMBAT", "HUNTING", "STALKING", "HOLDING_ANGLE", "ROAMING", "COLLECTING_ARMOR",
-             "COLLECTING_HEALTH", "FLEEING", "DEAD", "RESPAWNING")
+             "COLLECTING_HEALTH", "FLEEING", "KITING", "DEAD", "RESPAWNING")
 
 
 def readme_behaviors(path=os.path.join(CHARACTERS, "README.md")):

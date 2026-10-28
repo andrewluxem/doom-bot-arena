@@ -45,6 +45,9 @@ TIMED_SLACK = 70
 TIMED_ITEMS = itemfacts.TIMED
 HOLD_RADIUS = 16.0
 HOLD_TICS = 70
+BUSY_TICS = 35  # third party: the victim named another slot as its target in the second before the frag
+HURT_TICS = 105  # ...or took damage from another slot in the 3 s before it
+CONTACT_GAP = 35  # a player back in view after this long out of it is a new contact
 SEPARATION = 0.8
 PLACEHOLDER = "engine.bots:PlaceholderBot"
 OPS = {"<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge, "==": operator.eq}
@@ -76,6 +79,7 @@ class Bundle:
             self.rows[r["slot"]][r["tic"]] = r
         self.events = read_jsonl(os.path.join(path, "events.jsonl"))
         self._map = None
+        self._sight = None
         self.life = {s: self._lives(s) for s in self.slots}
         self.memo = {}  # (method, slot) -> result: every method below is pure for a bundle
 
@@ -164,6 +168,52 @@ class Bundle:
                 out.append((t, "armor"))
             if b["health"] > a["health"]:
                 out.append((t, "health"))
+        return out
+
+
+    def hurt_by_others(self, v, s):
+        """Tics at which v took damage while some slot other than v and s dealt damage (schema 3)."""
+        return self._cached("hurt_by_others", (v, s), lambda: self._hurt_by_others(v, s))
+
+    def _hurt_by_others(self, v, s):
+        out = set()
+        if "damage_taken" not in self.rows[v][0]:
+            return out
+        others = [k for k in self.slots if k not in (v, s)]
+        for t in range(1, self.end):
+            if self.rows[v][t]["damage_taken"] > self.rows[v][t - 1]["damage_taken"] and any(
+                    self.rows[k][t]["damagecount"] > self.rows[k][t - 1]["damagecount"] for k in others):
+                out.add(t)
+        return out
+
+    def busy_elsewhere(self, v, s, t):
+        """v named a target other than s at some tic in [t - BUSY_TICS, t - 1], or took damage from another
+        slot (not s) in [t - HURT_TICS, t - 1]."""
+        if any(self.rows[v][k]["target_slot"] not in (None, s) for k in range(max(0, t - BUSY_TICS), t)):
+            return True
+        hurt = self.hurt_by_others(v, s)
+        return any(k in hurt for k in range(max(1, t - HURT_TICS), t))
+
+    def in_view(self, s):
+        """{other slot: [bool per tic]}: the other player alive and in s's view and line of sight (schema 2)."""
+        return self._cached("in_view", s, lambda: self._in_view(s))
+
+    def _in_view(self, s):
+        from tools.hold_contact import in_view
+        from engine.geometry import LineOfSight
+        if self._sight is None:
+            self._sight = (LineOfSight(self.map), [sec["floor"] for sec in self.map["sectors"]])
+        sight, floor = self._sight
+        out = {}
+        for o in self.slots:
+            if o == s:
+                continue
+            seen = [False] * self.end
+            for t in self.displayed():
+                me, other = self.rows[s][t], self.rows[o][t]
+                if me["alive"] and other["alive"] and math.hypot(other["x"] - me["x"], other["y"] - me["y"]) <= 2048:
+                    seen[t] = in_view(sight, floor, me, other)
+            out[o] = seen
         return out
 
 
@@ -394,12 +444,42 @@ def approach_outside_view_cone_share(B, s, sheet):
     return out / n if n else None
 
 
+def third_party_kill_share(B, s, sheet):
+    """Share of the bot's kills whose victim was busy with someone else: it named another slot as its target in
+    the second before the frag, or took damage from another slot in the 3 s before it (schema 3)."""
+    kills = B.frags_by(s)
+    if not kills or "damage_taken" not in B.rows[s][0]:
+        return None
+    return sum(1 for e in kills if B.busy_elsewhere(e["target"], s, e["tic"])) / len(kills)
+
+
+def first_contact_avoidance_share(B, s, sheet):
+    """Over the bot's first contacts (another player coming into its view and line of sight after CONTACT_GAP
+    tics out of it, while not busy with anyone else), the share the bot does not name as its target within
+    the next 35 tics. Sight is reconstructed as in tools/hold_contact.py (schema 3)."""
+    if "damage_taken" not in B.rows[s][0]:
+        return None
+    n = avoided = 0
+    for o, seen in B.in_view(s).items():
+        last = -10 ** 9
+        for t in B.displayed():
+            if not seen[t]:
+                continue
+            if t - last > CONTACT_GAP and not B.busy_elsewhere(o, s, t):
+                n += 1
+                end = min(B.end, t + WINDOW + 1)
+                avoided += not any(B.rows[s][k]["target_slot"] == o for k in range(t, end))
+            last = t
+    return avoided / n if n else None
+
+
 METRICS = {f.__name__: f for f in (
     median_engagement_distance, median_kill_distance, closing_share, median_first_sight_engagement_distance,
     stationary_share, distance_traveled_rank, frags_within_1500ms_of_visibility_share, kills_from_hold_share,
     engagement_distance_in_band_share, retreat_on_close_share,
     engagements_started_below_50hp_share, item_timing_hit_rate, armor_pickups_rank,
-    behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share)}
+    behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share,
+    third_party_kill_share, first_contact_avoidance_share)}
 
 
 SHEET_PARAMS = {"engagement_distance_in_band_share": lambda sh: tuple(sh["temperament"]["preferred_range"]),

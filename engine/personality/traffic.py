@@ -1,0 +1,76 @@
+"""Observed traffic per map: where players actually were, from match bundles of that map.
+
+Every alive row of every slot in the displayed match counts once in the 64-unit cell holding its
+x, y (cells are aligned to the map origin). Only bundles of the same map and IWAD count. Spot
+scoring (spots.py) reads a spot's traffic as the sum over its cell and the eight cells around it.
+"""
+
+import hashlib
+import json
+import math
+import os
+from collections import Counter
+
+VERSION = 1
+CELL = 64
+
+
+def cell(x, y):
+    return math.floor(x / CELL), math.floor(y / CELL)
+
+
+def bundle_dirs(roots):
+    """Bundle directories under `roots`: each root is a bundle (has match.json) or holds bundles."""
+    out = []
+    for root in roots:
+        if os.path.isfile(os.path.join(root, "match.json")):
+            out.append(root)
+        elif os.path.isdir(root):
+            out += [os.path.join(root, d) for d in sorted(os.listdir(root))
+                    if not d.startswith(".") and os.path.isfile(os.path.join(root, d, "match.json"))]
+    return out
+
+
+def build(roots, map_data):
+    """The traffic map of map_data's map from the bundles under `roots`, or None if none is of that map."""
+    src = map_data["source"]
+    counts, used, samples = Counter(), [], 0
+    for path in bundle_dirs(roots):
+        with open(os.path.join(path, "match.json")) as f:
+            m = json.load(f)
+        if m.get("map") != src["map"] or m.get("iwad", {}).get("sha256") != src["iwad_sha256"]:
+            continue
+        f0, end = m["frame0_tic"], m["frame0_tic"] + m["duration_tics"]
+        with open(os.path.join(path, "tics.jsonl")) as f:
+            for line in f:
+                r = json.loads(line)
+                if r["alive"] and f0 <= r["tic"] < end:
+                    counts[cell(r["x"], r["y"])] += 1
+                    samples += 1
+        used.append(m["id"])
+    if not used:
+        return None
+    return {"traffic_version": VERSION, "cell": CELL, "map": src["map"], "iwad_sha256": src["iwad_sha256"],
+            "bundles": used, "samples": samples,
+            "cells": {f"{cx},{cy}": n for (cx, cy), n in sorted(counts.items())}}
+
+
+def digest(traffic):
+    """Short content hash, for cache keys."""
+    if traffic is None:
+        return "routes"
+    blob = json.dumps({"v": traffic["traffic_version"], "cells": traffic["cells"]}, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+class Grid:
+    def __init__(self, traffic):
+        self.counts = {tuple(int(v) for v in k.split(",")): n for k, n in traffic["cells"].items()}
+
+    def at(self, x, y):
+        return self.counts.get(cell(x, y), 0)
+
+    def around(self, x, y):
+        """Traffic in the cell holding (x, y) and the eight cells adjacent to it."""
+        cx, cy = cell(x, y)
+        return sum(self.counts.get((cx + i, cy + j), 0) for i in (-1, 0, 1) for j in (-1, 0, 1))

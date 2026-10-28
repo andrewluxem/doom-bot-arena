@@ -102,7 +102,7 @@ From milestone 2C the placeholder baseline no longer decides gating; `make docke
 ### median_engagement_distance
 Median engagement distance over all of the bot's engagement tics in the displayed match. Each tic counts once, so long fights weigh more than short ones. `n/a` with fewer than 35 engagement tics.
 
-ASH `< 96`.
+ASH `< 96` until milestone 2C, when it left ASH's sheet (0 of 10 in 2B).
 
 ### median_kill_distance
 Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's kills. `n/a` with no kills. Where a rusher fights, not where it first sees someone.
@@ -147,7 +147,7 @@ NUL `>= 0.5`, descriptive. It was added as a second gating candidate for NUL, wi
 ### engagement_distance_in_band_share
 Share of the bot's engagement tics whose engagement distance lies inside its sheet's `temperament.preferred_range` (inclusive).
 
-ORB `> 0.6`.
+ORB `> 0.6`, gating.
 
 ### retreat_on_close_share
 A **close approach** is an engagement tic where the engagement distance is below the sheet's `temperament.retreat_distance`, while the previous tic of the same engagement was not (or the engagement starts inside it).
@@ -156,7 +156,7 @@ It is **answered** if, over the next 35 tics of that engagement, the bot's own s
 
 Share of close approaches answered. `n/a` with none.
 
-ORB `> 0.7`.
+ORB `> 0.7`, descriptive from milestone 2C.
 
 ### engagements_started_below_50hp_share
 Share of the bot's engagements in the displayed match whose start tic has `health < 50`. `target_slot` is the bot's own report, so this measures fights the bot took up while hurt, not ones it was dragged into.
@@ -176,12 +176,12 @@ KRN `> 0.5`.
 ### armor_pickups_rank
 Each bot's armor pickups in the displayed match, ranked descending: 1 = most of the eight.
 
-PYR `<= 2`.
+PYR `<= 2` until milestone 2C.
 
 ### behavior_switches_per_minute
 Count of alive steps where `behavior` differs between `t − 1` and `t`, divided by the bot's alive minutes in the displayed match. A step into or out of `DEAD` or `RESPAWNING` is not a switch.
 
-ZED `> 6`.
+ZED `> 6`, gating from milestone 2C.
 
 ### melee_damage_share
 Share of the damage the bot dealt in the displayed match that it dealt while holding a weapon in engine slot 1 (fist or chainsaw) at `t − 1`. Damage to barrels counts; its own splash is not damage dealt. Barrel blasts it set off count, attributed to the weapon in hand. `n/a` with no damage dealt; schema 3 only.
@@ -191,12 +191,28 @@ ASH `== 1.0`. ASH may hold only the fist and chainsaw, so a lower value means da
 ### chainsaw_damage_share
 As `melee_damage_share`, counting only damage dealt while engine slot 1 is held and `weapon_name` is `chainsaw`.
 
-ZED `> 0.4`.
+ZED `> 0.4`, descriptive from milestone 2C; the chainsaw stays its weapon preference.
 
 ### approach_outside_view_cone_share
 Over the bot's engagements in the displayed match, take the first tic `t` of each where the bot lands a hit (`hitcount` rises) and its target takes damage (`damage_taken` rises) in the same tic. The engagement counts as outside if, at `t`, the bot lies more than 45 degrees off the target's facing at `t − 1`: outside a 90-degree view cone centred on the target's `angle`. Share over engagements with such a hit. Two attackers hitting the same target in one tic cannot be told apart. `n/a` with none; schema 3 only.
 
-PYR `> 0.5`.
+PYR `> 0.5` until milestone 2C.
+
+### third_party_kill_share
+Over the bot's kills, the share whose victim was busy with someone else when it died:
+- at some tic in the 35 before the frag (`k − 35 … k − 1`), the victim's `target_slot` named a slot other than the bot; or
+- at some tic in the 105 before the frag, the victim's `damage_taken` rose while the `damagecount` of a slot other than the bot and the victim rose in the same tic (damage from another slot; two attackers in one tic cannot be told apart).
+
+`n/a` with no kills; schema 3 only.
+
+PYR `>= 0.6`, gating (milestone 2C).
+
+### first_contact_avoidance_share
+A **first contact** is another player coming into the bot's view after at least 35 tics out of it, while that player is not busy with anyone else (as in `third_party_kill_share`, at the contact's first tic). "In view" is reconstructed as in `tools/hold_contact.py`: alive, within 2048 units, inside the bot's 90-degree view cone widened by the player's radius, with 2.5D line of sight from the bot's eye.
+
+Share of first contacts the bot does not name as its `target_slot` within the next 35 tics. `n/a` with none; schema 3 only.
+
+PYR `>= 0.5`, descriptive.
 
 ## Behavior distribution
 

@@ -32,14 +32,14 @@ PERSONALITY = "engine.personality.controller:PersonalityBot"
 MILESTONE_2A = "VEX,HEX,NUL"  # the 2A trio; since milestone 2B all eight are personalities by default
 
 
-def controllers(sheets, codes, map_data, cache_dir):
+def controllers(sheets, codes, map_data, cache_dir, traffic=None):
     """Controller path and kwargs per slot: the personality engine for `codes`, placeholders otherwise."""
     paths, kwargs, resolved = {}, {}, {}
     for sh in sheets:
         slot = sh["slot"]
         if sh["code"] in codes:
             paths[slot] = PERSONALITY
-            kwargs[slot] = {"map_data": map_data, "cache_dir": cache_dir}
+            kwargs[slot] = {"map_data": map_data, "cache_dir": cache_dir, "traffic": traffic}
             resolved[slot] = weapons.resolve(sh["weapons"]["allowed"], sh["weapons"]["weights"],
                                              map_data["weapons_present"])
         else:
@@ -144,6 +144,9 @@ def main(argv=None):
     p.add_argument("--personalities", default="all",
                    help="codes driven by the personality engine, or 'all' or 'none'; the rest are placeholders "
                         "(default %(default)s; 'none' is the separation baseline)")
+    p.add_argument("--traffic", nargs="*", default=[],
+                   help="bundle directories (or directories of bundles) whose bundles of this map make the observed "
+                        "traffic map for spot scoring; with none of this map, spots use the route scorer")
     args = p.parse_args(argv)
 
     err = preflight()
@@ -172,9 +175,11 @@ def main(argv=None):
         print(f"runner: refusing to run: unknown personality codes {sorted(unknown)}", file=sys.stderr)
         return 2
     cache_dir = os.path.join(args.out, ".cache")
-    paths, ctrl_kwargs, resolved = controllers(sheets, codes, map_data, cache_dir)
     from engine import personality
-    _, spot_tables = personality.prepare(map_data, cache_dir, [sh for sh in sheets if sh["code"] in codes])
+    from engine.personality import traffic as trafficlib
+    traffic = trafficlib.build(args.traffic, map_data) if args.traffic else None
+    paths, ctrl_kwargs, resolved = controllers(sheets, codes, map_data, cache_dir, traffic)
+    _, spot_tables = personality.prepare(map_data, cache_dir, [sh for sh in sheets if sh["code"] in codes], traffic)
 
     def log(msg):
         print(msg, flush=True)
@@ -183,6 +188,8 @@ def main(argv=None):
     frame0 = bundle.frame0_tic(args.respawn_delay, game.TICRATE)
     total = frame0 + args.duration_tics
     log(f"match {match_id}: ViZDoom {game.version()}, {frame0} pre-roll + {args.duration_tics} tics, seed {args.seed}")
+    log("spot traffic: " + (f"observed, {len(traffic['bundles'])} bundle(s), {traffic['samples']} samples"
+                            if traffic else "routes (no bundles of this map)"))
     try:
         capture = match.run_match(
             sheets=sheets, iwad=iwad, map_name=args.map.upper(), seed=args.seed,
@@ -248,6 +255,8 @@ def main(argv=None):
                    "scoreboard_per_slot": [capture["scoreboard"][s] for s in roster.SLOTS]},
         "pov": [{"slot": s, "path": f"pov/slot{s}.mp4", "sha256": sha256_file(os.path.join(bundle_dir, "pov", f"slot{s}.mp4"))}
                 for s in roster.SLOTS],
+        "spot_traffic": ({"source": "observed", "cell": traffic["cell"], "bundles": traffic["bundles"],
+                          "samples": traffic["samples"]} if traffic else {"source": "routes"}),
         "host_args": capture["host_args"],
         "client_args": capture["client_args"],
     }

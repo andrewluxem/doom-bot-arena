@@ -22,7 +22,19 @@ EVAL2B_MAPS ?= MAP10 E1M5
 EVAL2B_SEEDS ?= 301 302 303 304 305
 EVAL2B_OUT ?= bundles/eval-2b
 
-.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b
+# Milestone 2C: two placeholder matches per map seed the traffic map spots are scored by, then the evaluation.
+EVAL2C_MAPS ?= MAP10 E1M5
+TRAFFIC_SEEDS ?= 211 212
+TRAFFIC_OUT ?= bundles/traffic-2c
+EVAL2C_SEEDS ?= 401 402 403 404 405
+EVAL2C_OUT ?= bundles/eval-2c
+MIN_FREE_GB ?= 20
+# Refuse to start a match with less than MIN_FREE_GB free where bundles are written.
+DISK_CHECK = avail=$$(df -Pk . | awk 'NR==2 {print int($$4 / 1048576)}'); \
+	if [ "$$avail" -lt $(MIN_FREE_GB) ]; then echo "refusing to start: $$avail GB free, under $(MIN_FREE_GB) GB"; exit 1; fi; \
+	echo "disk: $$avail GB free"
+
+.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b traffic-2c eval-2c signatures-2c signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b docker-traffic-2c docker-eval-2c docker-signatures-2c
 
 test:
 	$(PYTHON) -m pytest -q tests
@@ -75,7 +87,29 @@ eval-2b:
 
 signatures-2b:
 	$(PYTHON) tools/frag_rate.py --json $(EVAL2B_OUT)/frag_rate.json $(EVAL2B_OUT)/*/2*
-	$(PYTHON) tools/signatures.py --baseline $(BASE_OUT)/*/2* --json $(EVAL2B_OUT)/signatures.json $(EVAL2B_OUT)/*/2*
+	@echo "2B gated against the placeholder baseline (tools/signatures.py --baseline), which milestone 2C removed; use signatures-2c"
+
+# Placeholder matches whose positions make each map's traffic map (engine/personality/traffic.py).
+traffic-2c:
+	for m in $(EVAL2C_MAPS); do for s in $(TRAFFIC_SEEDS); do \
+		$(DISK_CHECK); \
+		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities none --out $(TRAFFIC_OUT)/$$m \
+		|| $(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities none --out $(TRAFFIC_OUT)/$$m || exit 1; \
+	done; done
+
+# All eight personalities, spots scored by the traffic map of TRAFFIC_OUT; signatures against the roster.
+eval-2c:
+	for m in $(EVAL2C_MAPS); do for s in $(EVAL2C_SEEDS); do \
+		$(DISK_CHECK); \
+		$(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all --traffic $(TRAFFIC_OUT)/$$m --out $(EVAL2C_OUT)/$$m \
+		|| $(PYTHON) -m engine.runner --map $$m --duration-tics 10500 --seed $$s --personalities all --traffic $(TRAFFIC_OUT)/$$m --out $(EVAL2C_OUT)/$$m || exit 1; \
+	done; done
+	$(MAKE) signatures-2c
+
+signatures-2c:
+	$(PYTHON) tools/frag_rate.py --json $(EVAL2C_OUT)/frag_rate.json $(EVAL2C_OUT)/*/2*
+	$(PYTHON) tools/signatures.py --json $(EVAL2C_OUT)/signatures.json $(EVAL2C_OUT)/*/2*
+	$(PYTHON) tools/hold_contact.py --bots NUL,HEX --json $(EVAL2C_OUT)/hold_contact.json $(EVAL2C_OUT)/*/2*
 
 signatures:
 	$(PYTHON) tools/signatures.py --bots $(BOTS) $(BUNDLE)
@@ -100,6 +134,15 @@ docker-eval:
 
 docker-baseline:
 	$(DOCKER_RUN) make baseline BASE_MAPS="$(BASE_MAPS)" BASE_SEEDS="$(BASE_SEEDS)" BASE_OUT=$(BASE_OUT)
+
+docker-traffic-2c:
+	$(DOCKER_RUN) make traffic-2c EVAL2C_MAPS="$(EVAL2C_MAPS)" TRAFFIC_SEEDS="$(TRAFFIC_SEEDS)" TRAFFIC_OUT=$(TRAFFIC_OUT)
+
+docker-eval-2c:
+	$(DOCKER_RUN) make eval-2c EVAL2C_MAPS="$(EVAL2C_MAPS)" EVAL2C_SEEDS="$(EVAL2C_SEEDS)" EVAL2C_OUT=$(EVAL2C_OUT) TRAFFIC_OUT=$(TRAFFIC_OUT)
+
+docker-signatures-2c:
+	$(DOCKER_RUN) make signatures-2c EVAL2C_OUT=$(EVAL2C_OUT)
 
 docker-eval-2b:
 	$(DOCKER_RUN) make eval-2b EVAL2B_MAPS="$(EVAL2B_MAPS)" EVAL2B_SEEDS="$(EVAL2B_SEEDS)" EVAL2B_OUT=$(EVAL2B_OUT) BASE_OUT=$(BASE_OUT)

@@ -52,8 +52,8 @@ signature:
   - metric: behavior_switches_per_minute
     op: ">"
     value: 6
-    gate: false   # separates on MAP10 only (E1M5 baseline: 62% pass)
+    gate: true   # milestone 2C: gates against the roster, not the placeholder baseline
   - metric: chainsaw_damage_share
     op: ">"
     value: 0.4
-    gate: true
+    gate: false   # the chainsaw stays its weapon preference; 0/10 in 2B

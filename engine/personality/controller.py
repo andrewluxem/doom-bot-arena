@@ -9,12 +9,16 @@ resampled each decision, and max_turn_deg_per_tic on every turn and pitch change
 Milestone 2B mechanics, each driven by a sheet field (characters/README.md):
   item timing      items.item_timing: respawn timers from own pickups and from item labels seen
                    to vanish or reappear; item goals and roaming aim to arrive as an item respawns
-  retreat band     temperament.retreat_distance: inside it, back away from the target on a clear
-                   heading while still aiming
+  retreat band     temperament.retreat_distance: inside it, while engaging a target, back away from it
+                   on a clear heading while still aiming, whatever the behavior (a hard rule, milestone
+                   2C); shown as KITING while the target is in view and in weapon range
   flank            temperament.flank: paths toward a known enemy cost more inside its facing cone,
                    the goal moves behind it, and in a fight the bot strafes out of the cone
   re-roll          ranges, reroll_interval_s, reroll_seed_from_match: every interval the dials under
                    `ranges` are drawn again, from the match seed
+  engage only      temperament.engage_only (PYR, milestone 2C): engage only targets seen busy with another
+                   player or bleeding within hurt_within_ms (perception.py); keep away from any other
+                   enemy in view
   melee, berserk   melee weapons fire only within reach; items.weights.berserk lures the bot to a
                    berserk pack, which makes the fist its best weapon until it dies
 
@@ -79,6 +83,9 @@ FLANK_RANGE = 1024
 FLANK_PENALTY = 3.0  # extra cost factor of path edges into the target's cone
 FLANK_REAR = 160  # the flank goal sits this far behind a known enemy
 RETREAT_PROBE = 96
+BUSY_MEMORY = TICRATE  # a contact seen aiming at another player stays fair game this long
+AVOID_RANGE = 1024  # an engage_only bot keeps away from fresh enemies closer than this
+CORNER = 128.0  # closer than this an enemy is fought whatever the sheet says
 TRAPPED_NODES = 600  # E1M5's exit room is 291 nav nodes and MAP10's teleporter pocket 164; MAP10's
                      # smaller arena, 1634, is a place to fight in, not a trap
 TRAPPED_WAIT = 3 * TICRATE
@@ -124,6 +131,10 @@ class Dials:
         self.retreat_distance = tm.get("retreat_distance")
         self.flank = bool(tm.get("flank"))
         self.item_timing = bool(sheet["items"].get("item_timing"))
+        eo = tm.get("engage_only")
+        self.engage_only = eo is not None
+        self.engage_busy = bool(eo and eo.get("busy"))
+        self.hurt_window = round(eo["hurt_within_ms"] / 1000 * TICRATE) if eo and eo.get("hurt_within_ms") else None
 
 
 def with_values(sheet, values):
@@ -176,7 +187,7 @@ def in_cone(px, py, cx, cy, facing, half=FLANK_CONE):
 
 
 class PersonalityBot:
-    def __init__(self, slot, sheet, seed, map_data, cache_dir=None):
+    def __init__(self, slot, sheet, seed, map_data, cache_dir=None, traffic=None):
         self.slot, self.code = slot, sheet["code"]
         self.sheet = sheet
         self.d = Dials(sheet)
@@ -197,7 +208,7 @@ class PersonalityBot:
         self.spot_cands = []
         if self.d.spot_mode:
             req = [(self.d.spot_mode, self.d.rmin, self.d.rmax)]
-            self.spot_cands = spotlib.table(map_data, cache_dir, req, self.graph)["candidates"][self.d.spot_mode]
+            self.spot_cands = spotlib.table(map_data, cache_dir, req, self.graph, traffic)["candidates"][self.d.spot_mode]
         node = self.graph.thing_node  # None for a thing no node can walk to: never a goal
         self.weapon_things = [(w["name"], w["x"], w["y"], node(w["x"], w["y"]))
                               for w in map_data["weapons"] if w["in_deathmatch"]]
@@ -234,6 +245,7 @@ class PersonalityBot:
         self.alive = None
         self.behavior, self.scores = "ROAMING", None
         self.target, self.engaging, self.weapon_choice = None, False, None
+        self.avoid, self.kiting = None, False
         self.jit_yaw = self.jit_pitch = 0.0
         self.strafe, self.goal, self.goal_tag, self.goal_set_at = 0, None, None, 0
         self.path, self.path_i, self.planned_at = None, 0, -10 ** 9
@@ -276,7 +288,8 @@ class PersonalityBot:
         if decided and self._suicide_now(t, x, y):
             cmds = cmds + ["kill"]
         tgt = self.target.slot if (self.engaging and self.target is not None) else None
-        return action, cmds, self.behavior, self.scores, {"weapon_name": self.armory.chosen, "target_slot": tgt}
+        label = "KITING" if self.kiting else self.behavior
+        return action, cmds, label, self.scores, {"weapon_name": self.armory.chosen, "target_slot": tgt}
 
     def finish(self, outdir, n_tics):
         if self.trace is not None:
@@ -304,6 +317,7 @@ class PersonalityBot:
     def _on_spawn(self, t):
         self.perc.reset()
         self.target, self.engaging, self.weapon_choice = None, False, None
+        self.avoid, self.kiting = None, False
         self.goal, self.path, self.spot, self.at_spot = None, None, None, False
         self.prev, self.trail, self.stuck_count = None, [], 0
         self.scores, self.berserk, self.wait_item = None, False, None
@@ -384,6 +398,11 @@ class PersonalityBot:
         d = self.d
         health, armor = v["HEALTH"], v["ARMOR"]
         cands = [c for c in self.perc.recent(t, COMBAT_MEMORY) if not c.burned]
+        self.avoid = None
+        if d.engage_only and cands:
+            fresh = [c for c in cands if not self._fair_game(c, t)]
+            cands = [c for c in cands if c not in fresh or distance(c, x, y, t) < CORNER]
+            self.avoid = min(fresh, key=lambda c: distance(c, x, y, t), default=None)
         target = None
         if cands:
             def rank(c):
@@ -410,6 +429,9 @@ class PersonalityBot:
 
         threat = bool(self.perc.recent(t, THREAT_MEMORY))
         latest = self.perc.latest()
+        if d.engage_only:  # hunt only the fights it has seen
+            latest = max((c for c in self.perc.contacts.values() if self._fair_game(c, c.last_seen)),
+                         key=lambda c: c.last_seen, default=None)
         recent = latest is not None and not latest.visible and t - latest.last_seen <= RECENT_CONTACT
         sit = utility.Situation(
             health=health, armor=armor, has_usable=has_usable, armed=armed, engageable=self.engaging,
@@ -438,6 +460,12 @@ class PersonalityBot:
         self.jit_pitch = self.rng.gauss(0.0, d.jitter_deg * 0.5)
         if self.rng.random() < 0.08 + 0.17 * d.aggression:
             self.strafe = self.rng.choice((-1, 1)) if self.rng.random() < d.aggression else 0
+
+    def _fair_game(self, c, t):
+        """engage_only: c was seen aiming at another player within BUSY_MEMORY, or bleeding within the hurt window."""
+        d = self.d
+        return ((d.engage_busy and t - c.busy_at <= BUSY_MEMORY)
+                or (d.hurt_window is not None and t - c.hurt_at <= d.hurt_window))
 
     def _offer(self, t, x, y, cls, need):
         """0..1: value of the best available item of a class, discounted by straight-line distance.
@@ -818,6 +846,20 @@ class PersonalityBot:
                 move, run = ang + (90.0 if (t // 4) % 2 else -90.0), False
                 face = ang if face is None else face
 
+        self.kiting = False
+        kite = self._kite_move(t, x, y)
+        if kite is not None:  # the retreat band overrides every behavior while engaging
+            move, run = kite, True
+            dist = distance(self.target, x, y, t)
+            self.kiting = (self.target.visible and self.armory.chosen is not None
+                           and fuzzy.in_reach(self.armory.chosen, dist))
+        elif self.avoid is not None and not (self.behavior == "IN_COMBAT" and self.target is not None):
+            ax, ay = self.avoid.position_at(t)
+            if math.hypot(ax - x, ay - y) < AVOID_RANGE:
+                away = self._clear_heading(x, y, bearing(ax, ay, x, y))
+                if away is not None:
+                    move, run = away, True
+
         if t < self.unstick_until:
             move = (ang + 90.0 * self.unstick_dir) if move is None else move + 90.0 * self.unstick_dir
         elif move is not None:
@@ -917,18 +959,25 @@ class PersonalityBot:
         return (it is not None and self.behavior != "IN_COMBAT" and pending(it, t)
                 and math.hypot(it["x"] - x, it["y"] - y) < WAIT_RADIUS)
 
+    def _kite_move(self, t, x, y):
+        """The retreat band: engaging a target closer than retreat_distance, back straight off on the nearest
+        clear heading (within 90 degrees of directly away). None outside the band or with no clear heading."""
+        d = self.d
+        if d.retreat_distance is None or not self.engaging or self.target is None:
+            return None
+        cx, cy = self.target.position_at(t)
+        if math.hypot(cx - x, cy - y) >= d.retreat_distance:
+            return None
+        return self._clear_heading(x, y, bearing(cx, cy, x, y))
+
     def _combat_move(self, t, x, y):
         """Close to the dial-set range (aggression pushes toward rmin), strafing per aggression.
-        Inside the retreat band, back straight off on a clear heading. A flanker inside its target's
-        view cone strafes toward the cone's nearer edge instead of at random."""
+        A flanker inside its target's view cone strafes toward the cone's nearer edge instead of at random.
+        (The retreat band is _kite_move, applied over every behavior in _execute.)"""
         d = self.d
         cx, cy = self.target.position_at(t)
         dist = math.hypot(cx - x, cy - y)
         to = bearing(x, y, cx, cy)
-        if d.retreat_distance is not None and dist < d.retreat_distance:
-            away = self._clear_heading(x, y, to + 180.0)
-            if away is not None:
-                return away
         fx = fy = 0.0
         if dist > d.desired_range + 32:
             fx, fy = math.cos(math.radians(to)), math.sin(math.radians(to))
