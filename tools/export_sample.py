@@ -71,7 +71,7 @@ def main(argv=None):
     if os.path.exists(out):
         shutil.rmtree(out)
     os.makedirs(os.path.join(out, "pov"))
-    for name in FILES:
+    for name in FILES + (["spots.json"] if m.get("schema_version", 1) >= 2 else []):
         shutil.copy2(os.path.join(a.bundle, name), os.path.join(out, name))
     for v in m["pov"]:
         shutil.copy2(os.path.join(a.bundle, v["path"]), os.path.join(out, v["path"]))

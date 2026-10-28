@@ -1,15 +1,25 @@
-/* Loads a schema-1 match bundle (docs/MATCH_FORMAT.md) into per-slot typed arrays.
-   The viewer shows only what the bundle records: no positions, targets or sectors are guessed. */
+/* Loads a schema 1 or 2 match bundle (docs/MATCH_FORMAT.md) into per-slot typed arrays.
+   The viewer shows only what the bundle records: no positions, targets or sectors are guessed.
+   Schema 2 rows add weapon_name, target_slot and sector, and spots.json lists the spots bots chose. */
 
 export const BEHAVIORS = ['IN_COMBAT', 'HUNTING', 'STALKING', 'HOLDING_ANGLE', 'ROAMING', 'COLLECTING_ARMOR',
   'COLLECTING_HEALTH', 'FLEEING', 'DEAD', 'RESPAWNING'];
 export const DEATH_TYPES = new Set(['frag', 'telefrag', 'suicide', 'environmental_death']);
 
-/* characters/README.md: engine weapon slot -> weapons. Slots 1 and 3 hold two; schema 1 does not say which. */
+/* characters/README.md: engine weapon slot -> weapons. Slots 1 and 3 hold two, so the slot alone does not say which. */
 const WEAPONS = { 1: 'FIST / CHAINSAW', 2: 'PISTOL', 3: 'SHOTGUN / SSG', 4: 'CHAINGUN', 5: 'ROCKET LAUNCHER', 6: 'PLASMA RIFLE', 7: 'BFG' };
 const WEAPONS_SHORT = { 1: 'FIST/SAW', 2: 'PISTOL', 3: 'SG/SSG', 4: 'CHAINGUN', 5: 'ROCKET', 6: 'PLASMA', 7: 'BFG' };
 export function weaponLabel(slot, short) {
   return (short ? WEAPONS_SHORT : WEAPONS)[slot] || 'SLOT ' + slot;
+}
+/* Schema 2 weapon_name values (characters/README.md), stored per tic as an index; -1 is null. */
+export const WEAPON_NAMES = ['fist', 'chainsaw', 'pistol', 'shotgun', 'super_shotgun', 'chaingun', 'rocket_launcher', 'plasma_rifle', 'bfg'];
+const NAME_LABEL = { fist: 'FIST', chainsaw: 'CHAINSAW', pistol: 'PISTOL', shotgun: 'SHOTGUN', super_shotgun: 'SUPER SHOTGUN',
+  chaingun: 'CHAINGUN', rocket_launcher: 'ROCKET LAUNCHER', plasma_rifle: 'PLASMA RIFLE', bfg: 'BFG' };
+const NAME_SHORT = { fist: 'FIST', chainsaw: 'SAW', pistol: 'PISTOL', shotgun: 'SHOTGUN', super_shotgun: 'SSG',
+  chaingun: 'CHAINGUN', rocket_launcher: 'ROCKET', plasma_rifle: 'PLASMA', bfg: 'BFG' };
+export function weaponNameLabel(name, short) {
+  return (short ? NAME_SHORT : NAME_LABEL)[name] || String(name).toUpperCase();
 }
 
 /* Obituary key (engine/obituaries.py) -> what did the killing, for the kill feed. */
@@ -52,7 +62,8 @@ export async function loadBundle(base) {
   const [match, map, ticsText, eventsText] = await Promise.all([
     get(url('match.json'), 'json'), get(url('map.json'), 'json'), get(url('tics.jsonl')), get(url('events.jsonl')),
   ]);
-  if (match.schema_version !== 1) throw new Error(`schema_version ${match.schema_version} is not supported`);
+  if (![1, 2].includes(match.schema_version)) throw new Error(`schema_version ${match.schema_version} is not supported`);
+  const spots = match.schema_version >= 2 ? await get(url('spots.json'), 'json') : null;
   const f0 = match.frame0_tic, n = match.duration_tics, total = f0 + n, rate = match.ticrate;
   const respawnAfter = rate * match.respawn_delay_s + 1; // a death at tic d respawns at d + 35·delay + 1
   const bots = match.bots.map((b) => ({ ...b, id: String(b.slot).padStart(2, '0') }));
@@ -63,10 +74,10 @@ export async function loadBundle(base) {
     tel[s] = {
       x: new Float32Array(total), y: new Float32Array(total), angle: new Float32Array(total),
       health: new Int32Array(total), armor: new Int32Array(total), weapon: new Int8Array(total),
-      alive: new Uint8Array(total), behavior: new Uint8Array(total), target: null, sector: null,
+      alive: new Uint8Array(total), behavior: new Uint8Array(total), weaponName: null, target: null, sector: null,
     };
   }
-  const recorded = { target: false, sector: false };
+  const recorded = { weaponName: false, target: false, sector: false };
   let rows = 0;
   for (const line of ticsText.split('\n')) {
     if (!line) continue;
@@ -77,11 +88,17 @@ export async function loadBundle(base) {
     t.x[r.tic] = r.x; t.y[r.tic] = r.y; t.angle[r.tic] = r.angle;
     t.health[r.tic] = r.health; t.armor[r.tic] = r.armor; t.weapon[r.tic] = r.weapon;
     t.alive[r.tic] = r.alive ? 1 : 0; t.behavior[r.tic] = beh;
-    for (const k of ['target', 'sector']) {
-      if (k in r) {
-        recorded[k] = true;
-        (t[k] ||= new Array(total).fill(null))[r.tic] = r[k];
-      }
+    if ('weapon_name' in r) {
+      recorded.weaponName = true;
+      (t.weaponName ||= new Int8Array(total).fill(-1))[r.tic] = r.weapon_name == null ? -1 : WEAPON_NAMES.indexOf(r.weapon_name);
+    }
+    if ('target_slot' in r) {
+      recorded.target = true;
+      (t.target ||= new Uint8Array(total))[r.tic] = r.target_slot || 0; // 0 = no target
+    }
+    if ('sector' in r) {
+      recorded.sector = true;
+      (t.sector ||= new Int16Array(total).fill(-1))[r.tic] = r.sector == null ? -1 : r.sector;
     }
     rows++;
   }
@@ -123,12 +140,18 @@ export async function loadBundle(base) {
 
   const engine = Object.fromEntries(match.score.rows.map((r) => [r.slot, { frags: r.frags_raw, deaths: r.deaths_raw }]));
 
+  /* Chosen spots (spots.json) per slot, in pick order; spotAt gives the one held at a tic. */
+  const chosen = Object.fromEntries(slots.map((s) => [s, (spots?.chosen || []).filter((c) => c.slot === s)]));
+
   return {
-    base, match, map, bots, slots, tel, recorded, f0, n, total, rate, respawnAfter,
+    base, match, map, bots, slots, tel, recorded, f0, n, total, rate, respawnAfter, spots,
     deaths, shown, deathsBySlot, scoreAt, scoreCheck, engine,
     bot: (slot) => bots[slot - 1],
     /* Shown death events at or before tic (the kill feed and recent-frags lists). */
     shownUpTo: (tic) => shown.slice(0, lastAtOrBefore(shown, tic) + 1),
+    spotAt(slot, tic) {
+      return chosen[slot].find((c) => c.from_tic <= tic && (c.to_tic == null || tic <= c.to_tic)) || null;
+    },
     /* The death that put slot down, if it is dead at tic. */
     deathAt(slot, tic) {
       if (tel[slot].alive[tic]) return null;

@@ -1,6 +1,6 @@
 /* Ports of the design/dba.js renderers. Same markup and classes (styled by design/dba.css),
    but every function takes live state for the current tic instead of the frozen snapshot. */
-import { BEHAVIORS, fmtClock, keyLabel, weaponLabel } from './bundle.js';
+import { BEHAVIORS, WEAPON_NAMES, fmtClock, keyLabel, weaponLabel, weaponNameLabel } from './bundle.js';
 
 export const col = (id) => `var(--bot-${id})`;
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -28,9 +28,17 @@ export function botState(B, slot, tic, score, rank) {
     st.remain = Math.max(0, (death.respawnTic - tic) / B.rate);
     st.progress = Math.min(1, (tic - death.tic) / B.respawnAfter);
   }
-  if (B.recorded.target) st.target = t.target[tic];
-  if (B.recorded.sector) st.sector = t.sector[tic];
+  if (B.recorded.weaponName) st.weaponName = alive && t.weaponName[tic] >= 0 ? WEAPON_NAMES[t.weaponName[tic]] : null;
+  if (B.recorded.target) st.target = alive && t.target[tic] ? t.target[tic] : null;
+  if (B.recorded.sector) st.sector = t.sector[tic] >= 0 ? t.sector[tic] : null;
+  st.spot = alive ? B.spotAt(slot, tic) : null;
   return st;
+}
+
+/* What the bot holds: its own selection when the bundle records one, else the engine slot. */
+function weaponText(b, short) {
+  if (b.weaponName) return weaponNameLabel(b.weaponName, short);
+  return weaponLabel(b.weapon, short);
 }
 
 function whoDied(d, ctx) {
@@ -52,7 +60,7 @@ export function tileHead(b) {
 export function tileFoot(b) {
   if (b.dead) return '<span class="t-hpv">HP 0</span><span class="hp"></span><span class="t-wp">RESPAWNING</span>';
   return `<span class="t-hpv">HP ${b.health}</span><span class="hp"><i style="width:${pct(b.health)}%"></i></span>`
-    + (b.crit ? '<span class="crit">CRIT</span>' : '') + `<span class="t-wp">${weaponLabel(b.weapon, true)}</span>`;
+    + (b.crit ? '<span class="crit">CRIT</span>' : '') + `<span class="t-wp">${weaponText(b, true)}</span>`;
 }
 export function tileResp(b, ctx) {
   if (!b.dead) return '';
@@ -119,12 +127,25 @@ export function telemetry(b, ctx, o = {}) {
   h += '<dl class="tele-grid">';
   h += `<div class="tg tg-hp"><dt>HP</dt><dd>${b.dead ? 0 : b.health}<small>/100</small>${b.crit ? ' <span class="crit">CRIT</span>' : ''}</dd><span class="hp"><i style="width:${b.dead ? 0 : pct(b.health)}%"></i></span></div>`;
   h += `<div class="tg"><dt>ARMOR</dt><dd>${b.armor}<small>/100</small></dd><span class="hp hp--ar"><i style="width:${pct(b.armor)}%"></i></span></div>`;
-  h += `<div class="tg"><dt>WEAPON · SLOT ${b.weapon}</dt><dd>${weaponLabel(b.weapon)}</dd></div>`;
+  if ('weaponName' in b) {
+    // schema 2: the bot's own selection; with none (no allowed weapon with ammo) the engine slot is shown
+    const sel = b.weaponName ? weaponNameLabel(b.weaponName) : `${weaponLabel(b.weapon)} <small>NOT SELECTED</small>`;
+    h += `<div class="tg" title="weapon_name: the weapon the bot selected. The engine slot can lag it by the switch time."><dt>WEAPON · SLOT ${b.weapon}</dt><dd>${sel}</dd></div>`;
+  } else {
+    h += `<div class="tg"><dt>WEAPON · SLOT ${b.weapon}</dt><dd>${weaponLabel(b.weapon)}</dd></div>`;
+  }
   h += `<div class="tg"><dt>FRAGS / DEATHS</dt><dd>${b.frags} <small>/</small> ${b.deaths}</dd></div>`;
   h += `<div class="tg" title="Engine FRAGCOUNT and DEATHCOUNT at the last tic. They include the pre-roll, so they can differ from the displayed columns."><dt>ENGINE AT END</dt><dd>${e.frags} <small>/</small> ${e.deaths}</dd></div>`;
   h += `<div class="tg"><dt>KILLS · TELE · SELF</dt><dd>${b.kills} <small>·</small> ${b.telefrags} <small>·</small> ${b.suicides}</dd></div>`;
-  if ('target' in b) h += `<div class="tg"><dt>TARGET</dt><dd>${b.target == null ? 'NONE' : esc(b.target)}</dd></div>`;
-  if ('sector' in b) h += `<div class="tg"><dt>SECTOR</dt><dd>${b.sector == null ? 'NONE' : esc(b.sector)}</dd></div>`;
+  if ('target' in b) {
+    const tb = b.target == null ? null : ctx.B.bot(b.target);
+    h += `<div class="tg" title="target_slot: the player this bot is engaging"><dt>TARGET</dt><dd>${tb ? `<span class="sw" style="--c:${col(tb.id)}"></span> ${tb.id} ${esc(tb.code)}` : 'NONE'}</dd></div>`;
+  }
+  if ('sector' in b) {
+    const sec = b.sector == null ? null : ctx.B.map.sectors[b.sector];
+    h += `<div class="tg" title="Engine sector id of the bot's actor; floor height from map.json"><dt>SECTOR</dt><dd>${sec ? `${b.sector} <small>FLOOR ${sec.floor}</small>` : 'NONE'}</dd></div>`;
+  }
+  if (b.spot) h += `<div class="tg tg-wide" title="spots.json: the spot this bot chose (${esc(b.spot.mode)})"><dt>SPOT · ${b.spot.mode === 'sightlines_max' ? 'PERCH' : 'AMBUSH'}</dt><dd>X ${Math.round(b.spot.x)} <small>·</small> Y ${Math.round(b.spot.y)} <small>·</small> WATCH ${Math.round(b.spot.angle)}°</dd></div>`;
   h += `<div class="tg tg-wide"><dt>POSITION · FACING</dt><dd>X ${Math.round(b.x)} <small>·</small> Y ${Math.round(b.y)} <small>·</small> ${Math.round(b.angle)}°</dd></div>`;
   h += '</dl>';
   if (!o.compact) {
