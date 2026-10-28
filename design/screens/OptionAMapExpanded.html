@@ -23,7 +23,7 @@ html,body{margin:0;background:var(--surface-0)}
 <div id="root" class="dba a" data-theme="dark"></div>
 <script>
 (function(){var D=window.DBA;
-var r=document.getElementById('root');r.innerHTML='<div class="a-top"><div class="a-brand">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 10:00</span></div>'+D.clock()+'</div>'+D.scoreStrip()+'</div>'
+var r=document.getElementById('root');r.innerHTML='<div class="a-top"><div class="a-brand">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 05:00</span></div>'+D.clock()+'</div>'+D.scoreStrip()+'</div>'
 +'<section class="am"><div class="am-l"><div class="am-grid">'+D.BOTS.map(function(b){return D.tile(b.id,{size:'xs'})}).join('')+'</div>'
 +'<div class="panel">'+D.timeline({buckets:60,compact:true})+'</div></div>'
 +D.mapPanel({cls:'mm-panel--fill',expanded:true,ls:7,r:3.4,callsigns:true,sectors:true,secSize:5.5,cone:44})+'</section>';

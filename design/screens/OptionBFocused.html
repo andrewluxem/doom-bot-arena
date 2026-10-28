@@ -36,7 +36,7 @@ html,body{margin:0;background:var(--surface-0)}
 <script>
 (function(){var D=window.DBA;
 var SEC={'07':'NW','03':'N','01':'C\u00B7W','04':'W','05':'NE','02':'C\u00B7E','06':'SE','08':'S'};function fl(ids,side){return '<section class="b-flank">'+ids.map(function(id){return D.tile(id,{size:'s',sector:SEC[id],onstage:id==='01'})}).join('')+'</section>'}
-var r=document.getElementById('root');r.innerHTML='<header class="b-top">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 10:00</span></div>'+'<span class="b-mode"><span>VIEW <b>SPATIAL RING \u00B7 FOCUS 01</b></span><span>FEEDS PLACED BY SECTOR \u00B7 W FLANK / E FLANK</span></span>'+D.clock()+'</header>'+fl(['07','03','01','04'],'l')
+var r=document.getElementById('root');r.innerHTML='<header class="b-top">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 05:00</span></div>'+'<span class="b-mode"><span>VIEW <b>SPATIAL RING \u00B7 FOCUS 01</b></span><span>FEEDS PLACED BY SECTOR \u00B7 W FLANK / E FLANK</span></span>'+D.clock()+'</header>'+fl(['07','03','01','04'],'l')
 +'<section class="b-c"><div class="bf-stage">'+D.tile('01',{size:'l'})+'<div class="bf-side"><div class="panel"><span class="kick">STANDINGS</span>'+D.scoreTable()+'</div><div class="panel">'+D.timeline({buckets:50,compact:true})+'</div></div></div>'
 +'<div class="bf-bot">'+D.telemetry('01',{compact:true})+D.mapPanel({cls:'mm-panel--fill',ls:14,r:6})+'</div></section>'
 +fl(['05','02','06','08'],'r');

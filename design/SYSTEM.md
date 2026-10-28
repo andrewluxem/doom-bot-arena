@@ -10,7 +10,7 @@ Doom Bot Arena is a spectator app for watching eight AI bots with distinct perso
 
 ## Snapshot (ground truth for every screen)
 
-Clock `02:14` of `10:00`. Sorted by frags:
+Clock `02:14` of `05:00`. Sorted by frags:
 
 | ID | Callsign | Name | Personality | F | D | HP | Weapon | State |
 |---|---|---|---|---|---|---|---|---|

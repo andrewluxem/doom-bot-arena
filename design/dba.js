@@ -1,6 +1,6 @@
-/* Doom Bot Arena — shared spectator renderer. Plain functions returning HTML strings; assigns window.DBA. Ground-truth snapshot frozen at 02:14 of 10:00. */
+/* Doom Bot Arena — shared spectator renderer. Plain functions returning HTML strings; assigns window.DBA. Ground-truth snapshot frozen at 02:14 of 05:00. */
 (function () {
-  var NOW = 134, LEN = 600;
+  var NOW = 134, LEN = 300;
   var BOTS = [
     { id: '01', cs: 'VEX', name: 'Vex', role: 'Rusher', f: 14, d: 4, hp: 22, ar: 15, wp: 'Shotgun', st: 'combat', lab: 'IN COMBAT', tag: 'DUEL ▸ 02 KRN', beh: 'ENGAGING 02 KRN', zone: 'Central Hall', x: 182, y: 150, a: 0, opp: '02' },
     { id: '02', cs: 'KRN', name: 'Kronos', role: 'Tactician', f: 11, d: 3, hp: 38, ar: 50, wp: 'Chaingun', st: 'combat', lab: 'IN COMBAT', tag: 'DUEL ▸ 01 VEX', beh: 'ENGAGING 01 VEX', zone: 'Central Hall', x: 220, y: 150, a: 180, opp: '01' },
@@ -189,9 +189,9 @@
     for (var t = 0; t <= WIN; t += 30) h += '<span style="left:' + (t / WIN * 100) + '%">' + fmt(t) + '</span>';
     h += '</div>';
     if (!o.noOverview) {
-      h += '<div class="tl-ov" aria-label="Full match 00:00 to 10:00"><span class="tl-ov-fill" style="width:' + (NOW / LEN * 100).toFixed(2) + '%"></span><span class="tl-ov-win" style="width:' + (WIN / LEN * 100).toFixed(2) + '%"></span>';
-      for (var m = 1; m < 10; m++) h += '<span class="tl-ov-m" style="left:' + (m * 10) + '%"></span>';
-      h += '<span class="tl-ov-head" style="left:' + (NOW / LEN * 100).toFixed(2) + '%"></span></div><div class="tl-ov-axis"><span style="left:0">00:00</span><span style="left:' + (NOW / LEN * 100).toFixed(2) + '%">LIVE</span><span style="left:100%">10:00</span></div>';
+      h += '<div class="tl-ov" aria-label="Full match 00:00 to 05:00"><span class="tl-ov-fill" style="width:' + (NOW / LEN * 100).toFixed(2) + '%"></span><span class="tl-ov-win" style="width:' + (WIN / LEN * 100).toFixed(2) + '%"></span>';
+      for (var m = 1; m * 60 < LEN; m++) h += '<span class="tl-ov-m" style="left:' + (m * 60 / LEN * 100) + '%"></span>';
+      h += '<span class="tl-ov-head" style="left:' + (NOW / LEN * 100).toFixed(2) + '%"></span></div><div class="tl-ov-axis"><span style="left:0">00:00</span><span style="left:' + (NOW / LEN * 100).toFixed(2) + '%">LIVE</span><span style="left:100%">05:00</span></div>';
     }
     return h + '</div>';
   }
@@ -233,7 +233,7 @@
   /* ---------- header bits ---------- */
   function clock(o) {
     o = o || {};
-    return '<div class="clk' + (o.cls ? ' ' + o.cls : '') + '"><span class="live"><i></i>LIVE</span><span class="clk-t">' + fmt(NOW) + '</span><span class="clk-of">/ 10:00</span></div>';
+    return '<div class="clk' + (o.cls ? ' ' + o.cls : '') + '"><span class="live"><i></i>LIVE</span><span class="clk-t">' + fmt(NOW) + '</span><span class="clk-of">/ 05:00</span></div>';
   }
 
   /* B: draw tethers from each flank tile to its map dot (call after layout) */

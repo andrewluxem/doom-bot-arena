@@ -25,7 +25,7 @@ html,body{margin:0;background:var(--surface-0)}
 <div id="root" class="dba a" data-theme="dark"></div>
 <script>
 (function(){var D=window.DBA;
-var r=document.getElementById('root');r.innerHTML='<div class="a-top"><div class="a-brand">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 10:00</span></div>'+D.clock()+'</div>'+D.scoreStrip()+'</div>'
+var r=document.getElementById('root');r.innerHTML='<div class="a-top"><div class="a-brand">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 05:00</span></div>'+D.clock()+'</div>'+D.scoreStrip()+'</div>'
 +'<section class="af"><div class="af-l">'+D.tile('01',{size:'l'})
 +'<div class="af-thumbs" aria-label="Other feeds, one click to focus">'+D.BOTS.filter(function(b){return b.id!=='01'}).map(function(b){return D.tile(b.id,{size:'xs'})}).join('')+'</div></div>'
 +'<div class="af-r">'+D.telemetry('01')+'<div class="panel tlp">'+D.timeline({buckets:90})+'</div>'

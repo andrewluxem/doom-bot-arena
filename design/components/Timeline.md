@@ -1,6 +1,6 @@
 # Timeline
 
-A match scrubber whose detail lane stacks one bot-coloured tick per frag, so burst fights read as towers, above an overview of the full 10:00 match.
+A match scrubber whose detail lane stacks one bot-coloured tick per frag, so burst fights read as towers, above an overview of the full 05:00 match.
 
 Render with `DBA.timeline({buckets, compact, noHead, noOverview, stack})`.
 
