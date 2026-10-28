@@ -1,0 +1,10 @@
+bundles/
+out/
+.capture/
+.venv/
+docker/
+engine/
+tools/
+tests/
+characters/
+docs/

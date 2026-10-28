@@ -69,3 +69,10 @@ There is no icon set. Use the glyphs listed above in `--font-mono`, swatches (9p
 ## Components
 
 `DBA.tile`, `DBA.ctile`, `DBA.mapPanel`, `DBA.scoreStrip` / `scoreTable` / `scoreColumn`, `DBA.timeline`, `DBA.killfeed`, `DBA.telemetry`, `DBA.clock`, and `DBA.tethers` (B) all return HTML strings, styled by `dba.css`. Wrap output in an element with class `dba`.
+
+## Shipped viewer decisions (milestone 1B)
+
+- Nameplates and HP bars are overlaid on the video on a surface-0 scrim at 86% opacity, not placed in bands above and below the feed; every tile stays exactly 4:3. Measured contrast over all sample frames: main text 11.53:1, secondary text 5.22:1 (dark theme).
+- The faintest ink color is never used over video; only the brighter grays.
+- The minimap rotates 0 or 90 degrees to fit its panel (MAP01 is taller than wide).
+- Kill feed and timeline include suicides and environmental deaths so death counts always have a matching entry.
