@@ -1,0 +1,31 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Option A — Desktop</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../dba.css"><script src="../dba.js"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;background:var(--surface-0)}
+.brand{display:flex;flex-direction:column;gap:5px;white-space:nowrap}
+.brand-t{font:800 20px/1 var(--font-display);letter-spacing:.07em}
+.brand-s{font:500 9px/1 var(--font-mono);letter-spacing:.1em;color:var(--ink-muted)}
+.panel{border:1px solid var(--rule);background:var(--surface-1);padding:10px 12px;min-width:0;min-height:0;overflow:hidden}
+.panel>.kick{display:block;margin-bottom:8px}
+.feat{font:500 10px/1.5 var(--font-mono);letter-spacing:.05em;color:var(--ink-muted);border-top:1px solid var(--rule-soft);padding-top:8px;margin-top:10px}
+.feat b{color:var(--ink);font-weight:700}.a-top{height:56px;flex:none;display:grid;grid-template-columns:410px 1fr;border:1px solid var(--rule);background:var(--surface-1)}
+.a-brand{display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-right:1px solid var(--rule)}
+.a{width:1440px;height:900px;display:flex;flex-direction:column;gap:6px;padding:8px;overflow:hidden}
+.a-wall{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;flex:none}
+.a-dock{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 340px 226px;gap:6px}
+
+</style></head>
+<body>
+<div id="root" class="dba a" data-theme="dark"></div>
+<script>
+(function(){var D=window.DBA;
+var r=document.getElementById('root');r.innerHTML='<div class="a-top"><div class="a-brand">'+'<div class="brand"><span class="brand-t">DOOM BOT ARENA</span><span class="brand-s">DEATHMATCH \u00B7 8 BOTS \u00B7 05:00</span></div>'+D.clock()+'</div>'+D.scoreStrip()+'</div>'
++'<section class="a-wall" aria-label="Multiview 4x2">'+D.BOTS.map(function(b){return D.tile(b.id,{size:'m'})}).join('')+'</section>'
++'<section class="a-dock"><div class="panel">'+D.timeline({buckets:120})+'<p class="feat"><b>ON AIR</b> 01 VEX vs 02 KRN \u00B7 CENTRAL HALL \u00B7 VEX 22 HP, KRN 38 HP \u00B7 03 NUL closing via N door with rockets</p></div>'
++'<div class="panel"><span class="kick">KILL FEED</span>'+D.killfeed(6)+'</div>'
++D.mapPanel({cls:'mm-panel--fill',ls:16,r:6})+'</section>';
+})();
+</script>
+</body>
+</html>

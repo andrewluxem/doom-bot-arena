@@ -1,0 +1,64 @@
+/* Doom Bot Arena - generated from tokens.json */
+:root, [data-theme="dark"] {
+  --surface-0: #0a0b0c;
+  --surface-1: #111315;
+  --surface-2: #181b1e;
+  --feed: #1a1e21;
+  --feed-grid: #252a2f;
+  --rule-soft: #1f2327;
+  --rule: #2c3137;
+  --rule-strong: #4d545c;
+  --ink: #ecebe6;
+  --ink-muted: #9aa0a7;
+  --ink-faint: #6d737a;
+  --on-bot: #0a0b0c;
+  --focus: #ecebe6;
+  --bot-01: oklch(0.70 0.19 29);
+  --bot-02: oklch(0.74 0.13 245);
+  --bot-03: oklch(0.72 0.15 300);
+  --bot-04: oklch(0.84 0.14 95);
+  --bot-05: oklch(0.78 0.17 150);
+  --bot-06: oklch(0.83 0.11 200);
+  --bot-07: oklch(0.78 0.16 62);
+  --bot-08: oklch(0.72 0.20 335);
+}
+[data-theme="paper"] {
+  --surface-0: #f2f0ea;
+  --surface-1: #ebe8e0;
+  --surface-2: #e2ded3;
+  --feed: #d9d5c9;
+  --feed-grid: #c6c0b1;
+  --rule-soft: #cfcabd;
+  --rule: #1a1918;
+  --rule-strong: #0d0d0c;
+  --ink: #111110;
+  --ink-muted: #4f4c45;
+  --ink-faint: #7e7a70;
+  --on-bot: #ffffff;
+  --focus: #111110;
+  --bot-01: oklch(0.54 0.20 29);
+  --bot-02: oklch(0.50 0.15 255);
+  --bot-03: oklch(0.50 0.19 300);
+  --bot-04: oklch(0.54 0.11 85);
+  --bot-05: oklch(0.52 0.13 150);
+  --bot-06: oklch(0.52 0.09 210);
+  --bot-07: oklch(0.55 0.15 55);
+  --bot-08: oklch(0.53 0.21 340);
+}
+:root {
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --radius-0: 0px;
+  --radius-1: 2px;
+  --radius-dot: 50%;
+  --stroke-hair: 1px;
+  --stroke-hot: 2px;
+  --stroke-heavy: 4px;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-grotesk: Archivo, "Helvetica Neue", Arial, sans-serif;
+}
