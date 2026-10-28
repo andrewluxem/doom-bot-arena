@@ -3,14 +3,20 @@
 Labels exist only for objects rendered in the bot's own 90-degree view, so the view cone
 and occlusion come from the engine. A live player is labelled `DoomPlayer`; a dead one
 `DeadDoomPlayer` (probed on 1.3.2), which is never a target. The bot's own actor can
-appear in its own labels; anything within SELF_RADIUS of its position is skipped. Identity comes from the peers
-table (engine/peers.py), which names a visible player and nothing else.
+appear in its own labels; anything within SELF_RADIUS of its position is skipped.
+
+Identity: this is the only module that queries the label identity table (engine/peers.py),
+and only for the DoomPlayer labels in the current tic's buffer. A contact is keyed by the
+label's object id, stable for an actor's lifetime in this process; its slot is filled in
+when the table answers, two tics after the label first appears.
 
 Map items and geometry come from map.json: map knowledge is fair. Objects info is never
 used for enemy positions.
 """
 
 import math
+
+from engine.peers import NoIdentity
 
 ENEMY = "DoomPlayer"
 CORPSE = "DeadDoomPlayer"  # a contact whose last position now shows one has been seen to die
@@ -44,33 +50,31 @@ class Perception:
         self.contacts = {}
         self.last_any_contact = -10 ** 9
 
-    def update(self, t, state, peers, own_x, own_y):
+    def update(self, t, state, identity, own_x, own_y):
         for c in self.contacts.values():
             c.visible = False
-        corpses = []
-        for lab in state.labels or []:
-            if lab.object_name == CORPSE:
-                corpses.append((lab.object_position_x, lab.object_position_y))
-            if lab.object_name != ENEMY:
-                continue
-            x, y = lab.object_position_x, lab.object_position_y
-            if math.hypot(x - own_x, y - own_y) < SELF_RADIUS:
-                continue
-            slot = peers.identify(t, x, y)
-            key = slot if slot is not None else ("label", lab.object_id)
-            c = self.contacts.get(key)
+        players, corpses = player_labels(state, own_x, own_y)
+        names = name_labels(identity, t, players)
+        for lab in players:
+            oid, x, y = lab.object_id, lab.object_position_x, lab.object_position_y
+            c = self.contacts.get(oid)
             if c is None:
-                c = self.contacts[key] = Contact(key, slot, t)
+                c = self.contacts[oid] = Contact(oid, names[oid], t)
             elif t - c.last_seen > NEW_SIGHTING_GAP:
                 c.first_seen, c.burned = t, False
+            if names[oid] is not None:
+                c.slot = names[oid]
             c.last_seen, c.visible = t, True
             c.x, c.y, c.z = x, y, lab.object_position_z
             c.vx, c.vy = lab.object_velocity_x, lab.object_velocity_y
             self.last_any_contact = t
+        gone = []
         for k, c in list(self.contacts.items()):
             seen_dying = not c.visible and any(math.hypot(cx - c.x, cy - c.y) < 48 for cx, cy in corpses)
             if seen_dying or t - c.last_seen > FORGET_TICS:
                 del self.contacts[k]
+                gone.append(k)
+        (identity or NoIdentity()).forget(gone)
 
     def visible(self):
         return [c for c in self.contacts.values() if c.visible]
@@ -83,6 +87,24 @@ class Perception:
 
     def reset(self):
         self.contacts.clear()
+
+
+def player_labels(state, own_x, own_y):
+    """(live player labels, corpse positions) in this tic's buffer, without the bot's own actor."""
+    players, corpses = [], []
+    for lab in state.labels or []:
+        if lab.object_name == CORPSE:
+            corpses.append((lab.object_position_x, lab.object_position_y))
+        elif lab.object_name == ENEMY and math.hypot(lab.object_position_x - own_x,
+                                                     lab.object_position_y - own_y) >= SELF_RADIUS:
+            players.append(lab)
+    return players, corpses
+
+
+def name_labels(identity, t, labels):
+    """{object id: slot or None} for labels in this tic's buffer: the one query of the identity table."""
+    return (identity or NoIdentity()).identify(t, [(l.object_id, l.object_position_x, l.object_position_y)
+                                                   for l in labels])
 
 
 def distance(c, x, y, t):

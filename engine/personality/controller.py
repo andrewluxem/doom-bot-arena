@@ -15,8 +15,8 @@ import os
 import random
 
 from engine import weapons
-from engine.peers import NoPeers
 from engine.personality import fuzzy, nav, utility
+from engine.personality.ballistics import RocketCheck
 from engine.personality import spots as spotlib
 from engine.personality.perception import Perception, distance
 
@@ -86,11 +86,13 @@ class PersonalityBot:
         self.slot, self.code = slot, sheet["code"]
         self.d = Dials(sheet)
         self.rng = random.Random(f"{seed}:{slot}")
-        self.peers = NoPeers()
+        self.identity = None  # set by engine/player.py; used only by perception
         self.graph = nav.load(map_data, cache_dir)
         self.resolved = weapons.resolve(self.d.allowed, self.d.weapon_weights, map_data["weapons_present"])
         self.best_weight = max((self.d.weapon_weights.get(w, 0.0) for w in self.resolved), default=0.0)
         self.armory = weapons.Armory(map_data["weapons"])
+        self.rocket = RocketCheck(map_data) if "rocket_launcher" in self.resolved else None
+        self.rockets_held = 0  # shots withheld because the rocket would burst within its own splash
         self.perc = Perception(slot)
         self.spot_cands = []
         if self.d.spot_mode:
@@ -123,7 +125,7 @@ class PersonalityBot:
         self.look_back_until, self.look_back_dir = -1, 0.0
         self.lift_wait_since, self.lift_blocked_until = None, -1
         self.use_tic = -10 ** 9
-        self.live, self.lift_floor, self.door_ceiling = {}, {}, {}
+        self.live, self.lift_floor, self.door_ceiling, self.heights = {}, {}, {}, {}
         self.ang = 0.0
         self.trace = [] if os.environ.get("DBA_TRACE") else None
 
@@ -139,7 +141,7 @@ class PersonalityBot:
         if not self.alive:
             self._on_spawn(t)
         self.alive = True
-        self.perc.update(t, st, self.peers, x, y)
+        self.perc.update(t, st, self.identity, x, y)
         self._watch_self(t, v, x, y)
         if (t * 10) // TICRATE != ((t - 1) * 10) // TICRATE or self.scores is None:
             self._read_live(st)
@@ -180,6 +182,8 @@ class PersonalityBot:
         self.live = live
         self.lift_floor = {s: secs[s].floor_height for s in self.graph.lift_sectors if s < len(secs)}
         self.door_ceiling = {s: secs[s].ceiling_height for s in self.graph.manual_doors if s < len(secs)}
+        moving = (self.graph.manual_doors | self.graph.remote_doors | self.graph.lift_sectors)
+        self.heights = {s: (secs[s].floor_height, secs[s].ceiling_height) for s in moving if s < len(secs)}
 
     def _watch_self(self, t, v, x, y):
         """Pickups (to time item respawns), damage taken while no enemy is in view, and getting stuck."""
@@ -261,7 +265,8 @@ class PersonalityBot:
                 "contacts": [[str(c.key), c.visible, c.burned] for c in self.perc.contacts.values()],
                 "goal": None if self.goal is None else [round(self.goal[0]), round(self.goal[1]), self.goal_tag],
                 "path": None if not self.path else [len(self.path), self.path_i],
-                "spot": None if self.spot is None else [self.spot["id"], self.at_spot], "stuck": self.stuck_count})
+                "spot": None if self.spot is None else [self.spot["id"], self.at_spot], "stuck": self.stuck_count,
+                "rockets_held": self.rockets_held})
 
         self.jit_yaw = self.rng.gauss(0.0, d.jitter_deg)
         self.jit_pitch = self.rng.gauss(0.0, d.jitter_deg * 0.5)
@@ -510,7 +515,12 @@ class PersonalityBot:
             err_yaw = abs(wrap180(aim["yaw"] - new_ang))
             err_pitch = abs(want_pitch - (up + dp))
             if err_yaw <= aim["tol"] and err_pitch <= 6.0 and not aim["unsafe"]:
-                action["ATTACK"] = 1
+                seen = [(c.x, c.y, c.vx, c.vy) for c in self.perc.visible()]
+                if self.armory.chosen == "rocket_launcher" and not self.rocket.clear(
+                        x, y, z, new_ang, up + dp, self.heights, seen)[0]:
+                    self.rockets_held += 1  # a wall, floor or thing within 160 units of the muzzle
+                else:
+                    action["ATTACK"] = 1
         return action
 
     def _aim(self, t, v, x, y, z):
@@ -526,7 +536,7 @@ class PersonalityBot:
         yaw = bearing(x, y, cx, cy) + self.jit_yaw
         pitch = math.degrees(math.atan2((c.z + CHEST) - (z + EYE), dist)) + self.jit_pitch
         tol = math.degrees(math.atan2(18.0, dist)) + fuzzy.SPREAD_DEG.get(w, 1.0)
-        unsafe = w == "rocket_launcher" and dist < 144  # inside its own splash
+        unsafe = False  # rocket safety, the target included, is checked at the trigger (ballistics.py)
         return {"yaw": yaw, "pitch": max(-30.0, min(30.0, pitch)), "tol": tol, "unsafe": unsafe, "dist": dist}
 
     def _arrive(self, x, y, move):

@@ -12,7 +12,9 @@ VARIABLES = [
     "POSITION_X", "POSITION_Y", "ANGLE", "SELECTED_WEAPON",
 ] + [f"PLAYER{i}_FRAGCOUNT" for i in range(1, 9)] + [
     "POSITION_Z", "PITCH", "SELECTED_WEAPON_AMMO",
-] + [f"WEAPON{i}" for i in range(10)] + [f"AMMO{i}" for i in range(10)]
+] + [f"WEAPON{i}" for i in range(10)] + [f"AMMO{i}" for i in range(10)] + [
+    "HITCOUNT", "HITS_TAKEN", "DAMAGECOUNT", "DAMAGE_TAKEN",
+]
 # WEAPONn is the number of weapons owned in slot n (2 in slot 3 with both shotguns); AMMOn is the ammo
 # of slot n's weapons. Probed on 1.3.2.
 

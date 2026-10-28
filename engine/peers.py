@@ -1,66 +1,142 @@
-"""Per-tic table of where each slot is, shared by the eight player processes.
+"""Label identity across the eight player processes.
 
-It exists to name players that are already visible. ViZDoom label object ids differ
-between processes, so a visible DoomPlayer label is matched to the slot whose
-published position is nearest. A human sees the same thing on screen (colour and
-name), so this adds identity, not information: no controller may use the table to
-locate a player it cannot see.
+ViZDoom label object ids differ between processes, so a process cannot tell which slot a
+visible `DoomPlayer` label belongs to. It asks. For each label it cannot name yet, it posts
+the label's position as a request. Every other process compares open requests with its own
+position and answers "that is me" when one matches. The shared table holds only requests
+(positions of labels the asking process can see) and answers (slot ids). No process
+publishes its own position, so nothing in the table can locate a player that is not on
+the asker's screen, and the asker learns nothing but the slot of labels it posted.
 
-Double-buffered by tic parity. Each process writes tic t into buffer t % 2 before its
-make_action and barrier, and reads tic t - 1 from the other buffer. The barrier at the
-end of tic t - 1 guarantees every slot has written it, and no slot can overwrite it
-(at tic t + 1) before this process reaches the barrier of tic t.
+Fairness rule (docs/MATCH_FORMAT.md):
+- Only engine/personality/perception.py may query the table (`IdentityReader.identify`).
+- It may query it only for labels present in the current tic's labels buffer.
+- engine/player.py creates a process's reader and writer and runs the writer's `answer`.
+  engine/match.py allocates the table. No other module imports this one.
+tests/test_peers.py enforces both.
+
+Timing, with the barrier at the end of every tic ordering the steps:
+- A request posted at tic t is answered during tic t + 1: each process answers right after
+  its get_state, before its controller acts.
+- The asker reads the answer at tic t + 2.
+- Answers are cached per label object id, which a process keeps for an actor's lifetime. So
+  only a newly seen player waits two tics for its name.
+
+Labels report an actor's position at its own tic or the one before, sampled slightly apart
+from the game variables (probed on 1.3.2: 81% equal the previous tic's position exactly, the
+rest within a tic's movement). An answer therefore compares the request with the answerer's
+own position at both tics, and accepts it within MATCH_RADIUS. Live players are at least 32
+units apart. If two answerers both match, the nearer one wins, under a lock.
 """
 
 import math
 
-FIELDS = 4  # x, y, z, alive
 SLOTS = 8
-MATCH_RADIUS = 48.0  # a player moves at most ~16-30 units per tic; players are 32 apart when touching
+MAX_LABELS = 16  # requests per process per tic
+REQ_FIELDS = 3  # x, y, used
+ANS_FIELDS = 2  # slot, distance
+MATCH_RADIUS = 20.0
+NO_ANSWER = 1e9
+
+
+def _req(parity, asker, i):
+    return ((parity * SLOTS + asker - 1) * MAX_LABELS + i) * REQ_FIELDS
+
+
+def _ans(parity, asker, i):
+    return 2 * SLOTS * MAX_LABELS * REQ_FIELDS + ((parity * SLOTS + asker - 1) * MAX_LABELS + i) * ANS_FIELDS
+
+
+SIZE = 2 * SLOTS * MAX_LABELS * (REQ_FIELDS + ANS_FIELDS)
 
 
 def allocate(ctx):
-    return ctx.Array("d", [0.0] * (2 * SLOTS * FIELDS), lock=False)
+    """The shared table and the lock answerers take. Answer distances start at NO_ANSWER."""
+    array = ctx.Array("d", [0.0] * SIZE, lock=False)
+    for p in (0, 1):
+        for a in range(1, SLOTS + 1):
+            for i in range(MAX_LABELS):
+                array[_ans(p, a, i) + 1] = NO_ANSWER
+    return array, ctx.Lock()
 
 
-class Peers:
-    def __init__(self, array, slot):
-        self.a = array
-        self.slot = slot
+class IdentityWriter:
+    """One process's answering side. It keeps its own recent positions in local memory only."""
 
-    def write(self, t, x, y, z, alive):
-        i = ((t % 2) * SLOTS + self.slot - 1) * FIELDS
-        self.a[i:i + FIELDS] = [x, y, z, 1.0 if alive else 0.0]
+    def __init__(self, array, lock, slot):
+        self.a, self.lock, self.slot = array, lock, slot
+        self.history = {}  # tic -> (x, y) while alive
 
-    def previous(self, t):
-        """{slot: (x, y, z, alive)} as published at tic t - 1 (empty at tic 0)."""
-        if t == 0:
-            return {}
-        base = ((t - 1) % 2) * SLOTS * FIELDS
-        vals = self.a[base:base + SLOTS * FIELDS]
-        return {s + 1: (vals[s * FIELDS], vals[s * FIELDS + 1], vals[s * FIELDS + 2], vals[s * FIELDS + 3] > 0.5)
-                for s in range(SLOTS)}
-
-    def identify(self, t, x, y):
-        """Slot of the live player nearest (x, y) at tic t - 1, excluding this slot, or None."""
-        best = None
-        for s, (px, py, _, alive) in self.previous(t).items():
-            if s == self.slot or not alive:
+    def answer(self, t, x, y, alive):
+        """Record this tic's own position, then answer requests posted at t - 1 that match it."""
+        if alive:
+            self.history[t] = (x, y)
+        self.history.pop(t - 3, None)
+        if t < 1:
+            return
+        mine = [self.history[k] for k in (t - 1, t - 2) if k in self.history]
+        if not mine:
+            return
+        p = (t - 1) % 2
+        for asker in range(1, SLOTS + 1):
+            if asker == self.slot:
                 continue
-            d = math.hypot(px - x, py - y)
-            if d <= MATCH_RADIUS and (best is None or d < best[0]):
-                best = (d, s)
-        return best[1] if best else None
+            for i in range(MAX_LABELS):
+                base = _req(p, asker, i)
+                if self.a[base + 2] < 0.5:
+                    break  # requests are packed from index 0
+                rx, ry = self.a[base], self.a[base + 1]
+                d = min(math.hypot(rx - mx, ry - my) for mx, my in mine)
+                if d <= MATCH_RADIUS:
+                    with self.lock:
+                        ab = _ans(p, asker, i)
+                        if d < self.a[ab + 1]:
+                            self.a[ab], self.a[ab + 1] = float(self.slot), d
 
 
-class NoPeers:
-    """Stand-in when a controller runs without the shared table (identity unknown)."""
+class IdentityReader:
+    """One process's asking side. Use it only through engine/personality/perception.py."""
 
-    def write(self, *a):
+    def __init__(self, array, slot):
+        self.a, self.slot = array, slot
+        self.known = {}  # label object id -> slot
+        self.posted = {}  # tic -> [object id per request index]
+
+    def identify(self, t, labels):
+        """{object id: slot or None} for `labels`, the DoomPlayer labels in this tic's buffer.
+
+        `labels` is [(object_id, x, y)]. Only these labels are posted or looked up.
+        """
+        p = t % 2
+        asked = self.posted.pop(t - 2, [])
+        for i, oid in enumerate(asked):
+            ab = _ans(p, self.slot, i)
+            if self.a[ab + 1] < NO_ANSWER:
+                self.known[oid] = int(self.a[ab])
+            self.a[ab], self.a[ab + 1] = 0.0, NO_ANSWER
+        for i in range(MAX_LABELS):
+            self.a[_req(p, self.slot, i) + 2] = 0.0
+        out, post = {}, []
+        for oid, x, y in labels:
+            out[oid] = self.known.get(oid)
+            if out[oid] is None and len(post) < MAX_LABELS:
+                base = _req(p, self.slot, len(post))
+                self.a[base], self.a[base + 1], self.a[base + 2] = x, y, 1.0
+                post.append(oid)
+        self.posted[t] = post
+        return out
+
+    def forget(self, oids):
+        """Drop cached names for actors this process no longer sees (dead and gone)."""
+        for oid in oids:
+            self.known.pop(oid, None)
+
+
+class NoIdentity:
+    """Stand-in when a controller runs without the shared table: no label can be named."""
+
+    def identify(self, t, labels):
+        return {oid: None for oid, _, _ in labels}
+
+    def forget(self, oids):
         pass
-
-    def previous(self, t):
-        return {}
-
-    def identify(self, t, x, y):
-        return None

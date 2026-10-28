@@ -61,7 +61,7 @@ def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_dela
     barrier = ctx.Barrier(PLAYERS)
     heartbeat = ctx.Array("i", [-1] * PLAYERS)
     ready = ctx.Queue()
-    table = peers.allocate(ctx)
+    table = peers.allocate(ctx)  # (array, lock): label identity requests and answers
     procs = {}
     specs = {}
     for sheet in sheets:

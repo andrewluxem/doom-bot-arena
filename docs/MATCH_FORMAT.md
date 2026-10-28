@@ -65,6 +65,19 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
   - The setting stays on from the start, since it governs respawns.
   - These deaths fall in the pre-roll (section 3), before the displayed match starts.
 
+## 2a. Fairness
+
+What a bot may know. Tests enforce the identity rule; review enforces the rest.
+
+- **Enemies.** Enemy positions come only from the bot's own labels buffer: what its own POV renders, inside its 90-degree view. `state.objects` is read only to find the player's own actor (its engine sector); it is never used for other players.
+- **The map.** Geometry, items, weapons and spawn points from `map.json`, and live floor and ceiling heights from sectors info (doors, lifts), are fair: a player learns the map.
+- **Identity.** ViZDoom label object ids differ between processes, so naming a visible player goes through a shared table (`engine/peers.py`). The rule:
+  - The table holds only requests (the positions of labels a process can see) and answers (slot ids). No process publishes its own position.
+  - Only `engine/personality/perception.py` may query it, and only to name a `DoomPlayer` label present in the current tic's labels buffer. Nothing may use it for the position of a player who is not in that buffer.
+  - `engine/player.py` creates each process's reader and writer and runs the writer, and `engine/match.py` allocates the table. No other module imports `engine/peers.py`.
+  - `tests/test_peers.py` checks that a process reads only its own request and answer rows, that no answer names a slot absent from its labels, that a player's position never reaches the table, and the import and call rule (`make test`).
+- **Protocol.** A label a process cannot name yet is posted at tic `t`. Every other process compares open requests with its own position at the previous two tics and answers within 20 units: labels report an actor's position at its own tic or the one before (81% exactly the previous tic, probed on 1.3.2). The asker reads the answer at tic `t + 2` and caches it per label object id, which is stable for an actor's lifetime. So `target_slot` for a newly seen player starts two tics after the label first appears.
+
 ## 3. Time contract
 
 - **Lockstep.** On every loop iteration, each process calls `make_action(action, 1)` once, then waits at a cross-process barrier. Without the barrier, ZDoom's `TryRunTics` lets a lagging client run two gametics in one step: 46–346 skipped tics per client over 1400 steps in the 8-player probe. `match.json.sync` records `barrier: true` and the gap count, which must be 0. A process that sees a gap aborts the match.
@@ -177,12 +190,12 @@ NUL has just picked up the rocket launcher and selected it; the engine still hol
 | `behavior` | controller | only the values in `characters/README.md`; `DEAD`/`RESPAWNING` set by the runner as in section 3 |
 | `utility_scores` | controller | `{BEHAVIOR: float}` or `null`. Personality bots write the eight chooseable behaviors' weighted scores from their last 10 Hz decision; placeholders write `null` |
 | `weapon_name` | controller | schema 2. The weapon the bot itself last selected (`characters/README.md` names), or `null` before it has selected one or while it holds no usable allowed weapon. It can lead `weapon` by the switch time (about 15 tics) and differ from it after the engine switches away from an empty weapon. For personality bots it is always one of `bots[].weapons_resolved` |
-| `target_slot` | controller | schema 2. The slot the bot is engaging: the enemy it is aiming at, from the first tic it is in view until 0.6 s after it leaves view, or `null`. Personality bots name a target only while they may fight it (an ambusher's fire window, `engage_health_min`). A placeholder names the nearest visible player it is shooting at |
+| `target_slot` | controller | schema 2. The slot the bot is engaging: the enemy it is aiming at, from the first tic it is in view and named (two tics after a new label appears; section 2a) until 0.6 s after it leaves view, or `null`. Personality bots name a target only while they may fight it (an ambusher's fire window, `engage_health_min`). A placeholder names the nearest visible player it is shooting at |
 | `sector` | engine | schema 2. Engine sector id of the player's own actor (`state.objects`, used for nothing else). Sector ids are `map.json` `sectors` indices |
 
 Each process writes only its own slot's rows.
 
-**Target identity.** ViZDoom label object ids differ between processes, so a visible `DoomPlayer` label is named by matching its position to a per-tic table where every process publishes its own position (`engine/peers.py`, double-buffered by tic parity behind the barrier). The table is used to name players that are already visible and for nothing else; perception uses the labels buffer only. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
+**Target identity** follows the fairness rule in section 2a. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
 
 ## 6. events.jsonl
 

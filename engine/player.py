@@ -100,8 +100,13 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array):
 
     ctrl = load_controller(spec["controller"], slot=slot, sheet=sheet, seed=spec["seed"],
                            **spec.get("controller_kwargs", {}))
-    table = peers.Peers(peers_array, slot) if peers_array is not None else peers.NoPeers()
-    ctrl.peers = table
+    writer = None
+    if peers_array is not None:
+        array, lock = peers_array
+        writer = peers.IdentityWriter(array, lock, slot)
+        ctrl.identity = peers.IdentityReader(array, slot)  # read only through engine/personality/perception.py
+    else:
+        ctrl.identity = peers.NoIdentity()
     rows = open(os.path.join(out, "rows.jsonl"), "w")
     notes = open(os.path.join(out, "notifications.jsonl"), "w")
     fragvec = open(os.path.join(out, "fragvec.jsonl"), "w")
@@ -124,7 +129,8 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array):
         v = dict(zip(game.VARIABLES, (float(x) for x in st.game_variables)))
         player_numbers.add(int(v["PLAYER_NUMBER"]))
         alive = v["DEAD"] == 0
-        table.write(t, v["POSITION_X"], v["POSITION_Y"], v["POSITION_Z"], alive)
+        if writer is not None:
+            writer.answer(t, v["POSITION_X"], v["POSITION_Y"], alive)
         sector = own_sector(st, v["POSITION_X"], v["POSITION_Y"])
 
         action, cmds, behavior, utility, info = ctrl.act(t, st, v)
