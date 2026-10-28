@@ -32,12 +32,13 @@ from engine import items as itemfacts
 from engine.geometry import EYE_HEIGHT
 from engine.personality import nav
 
-VERSION = 2
+VERSION = 3
 ROUTE_RADIUS = 256.0
 RAYS = 72
 RAY_MAX = 2048.0
 CANDIDATE_GRID = 64  # score nav grid nodes on a coarser lattice
 TOP = 40
+TOP_SIDE = 8  # candidates kept per smaller nav region (nav.py region_id), so a bot spawning there has spots
 MIN_SPACING = 128
 MODES = ("sightlines_max", "sightlines_min_near_traffic")
 
@@ -117,15 +118,27 @@ def _watch(rays, weights=None, half=6):
     return best_i * 360.0 / RAYS
 
 
-def _spread(cands):
+def _spread(cands, top=TOP):
     """Best first, dropping candidates closer than MIN_SPACING to a better one."""
     out = []
     for c in sorted(cands, key=lambda c: -c["score"]):
         if all(math.hypot(c["x"] - o["x"], c["y"] - o["y"]) >= MIN_SPACING for o in out):
             out.append(c)
-        if len(out) == TOP:
+        if len(out) == top:
             break
     return out
+
+
+def _spread_by_region(cands, region_id):
+    """TOP candidates in the largest nav region and TOP_SIDE in each other one, best first overall."""
+    by = {}
+    for c in cands:
+        by.setdefault(region_id[c["id"]], []).append(c)
+    out = []
+    for r, cs in by.items():
+        if r >= 0:
+            out += _spread(cs, TOP if r == 0 else TOP_SIDE)
+    return sorted(out, key=lambda c: -c["score"])
 
 
 def compute(map_data, graph, requests):
@@ -180,7 +193,7 @@ def compute(map_data, graph, requests):
         top = max((c["score"] for c in cands), default=1.0) or 1.0
         for c in cands:
             c["score"] = round(c["score"] / top, 4)
-        out["candidates"][mode] = _spread(cands)
+        out["candidates"][mode] = _spread_by_region(cands, graph.region_id)
     return out
 
 

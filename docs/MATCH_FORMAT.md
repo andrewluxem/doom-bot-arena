@@ -294,7 +294,7 @@ The IWAD rule from section 1 applies: same file as the run, sha256 recorded in b
 Spot candidates for the stationary styles and the spots bots chose (`engine/personality/spots.py`).
 
 ```jsonc
-{"spots_version": 1, "map": "MAP01", "iwad_sha256": "a8772e08…",
+{"spots_version": 3, "map": "MAP01", "iwad_sha256": "a8772e08…",
  "params": [{"mode": "sightlines_max", "range": [500, 1500], "rays": 72, "ray_max": 2048.0, "lattice": 64, "candidates_scored": 584},
             {"mode": "sightlines_min_near_traffic", "range": [200, 600], "rays": 72, "ray_max": 2048.0, "lattice": 64, "candidates_scored": 584}],
  "candidates": {"sightlines_max": [{"id": 1309, "x": 1112.0, "y": -312.0, "sector": 165, "floor": -64, "score": 1.0, "watch_angle": 295.0}, "…"],
@@ -303,9 +303,14 @@ Spot candidates for the stationary styles and the spots bots chose (`engine/pers
             {"slot": 6, "code": "HEX", "mode": "sightlines_max", "spot": 1452, "x": 1176.0, "y": 1096.0, "angle": 185.0, "from_tic": 71, "to_tic": 2275}]}
 ```
 
-- Candidates are nav-graph nodes on a 64-unit lattice. Sight is 72 rays from eye height against `map.json` linedefs: a one-sided line, a closed door, or a two-sided line whose far floor is above (or ceiling below) eye height stops a ray. `score` is normalised to 1 for the best candidate; at most 40 are kept per mode, no two closer than 128 units.
+- Candidates are nav-graph nodes on a 64-unit lattice. Sight is 72 rays from eye height against `map.json` linedefs: a one-sided line, a closed door, or a two-sided line whose far floor is above (or ceiling below) eye height stops a ray. `score` is normalised to 1 for the best candidate. Per mode, at most 40 are kept in the largest nav region and 8 in each smaller one (`spots_version` 3), no two closer than 128 units.
   - `sightlines_max`: mean ray length clipped at the far end of the bot's `preferred_range`.
-  - `sightlines_min_near_traffic`: `sqrt(covered traffic) × (1 − exposure)² × sqrt(1 − own traffic)`. Traffic counts how often a node lies on the shortest path between two of the deathmatch starts, weapons and items; covered traffic is the traffic visible from the spot inside the bot's `preferred_range`; exposure is mean ray length clipped at 1024.
+  - `sightlines_min_near_traffic` (`spots_version` 2 on): `sqrt(covered routes) × (1 − exposure)² × sqrt(1 − own traffic)`.
+    - Routes are the nav shortest paths from every deathmatch start to every weapon and timed item; their count is in `params` (`routes`, `route_radius`).
+    - A route is covered when one of its nodes lies within 256 units of the spot and in its sight.
+    - Own traffic is the number of routes through the spot's node, over the busiest node's.
+    - Exposure is mean ray length clipped at 1024.
+    - Version 1 instead counted shortest paths between every pair of starts, weapons and items, seen inside the bot's `preferred_range`.
 - `chosen` lists every spot a bot picked, from the tic it picked it to the tic it left it (`to_tic` is the last tic, inclusive). `angle` is the candidate's `watch_angle`.
 - Tables are cached by IWAD sha256, map, nav-graph version and parameters in `<out>/.cache/`.
 
