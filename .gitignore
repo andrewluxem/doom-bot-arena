@@ -1,2 +1,24 @@
 .venv/
 _vizdoom.ini
+__pycache__/
+.pytest_cache/
+
+# IWADs are never committed
+doom*.wad
+DOOM*.WAD
+
+# generated output
+tools/out/
+bundles/
+*.mp4
+*.mkv
+*.webm
+!web/public/sample/
+!web/public/sample/**
+
+# secrets
+.env
+.env.*
+
+# runs and benches
+out/
