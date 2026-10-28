@@ -21,7 +21,7 @@ Timing, with the barrier at the end of every tic ordering the steps:
 - The asker reads the answer at tic t + 2.
 - Answers are cached per label object id, so only a newly seen player waits two tics for its
   name. ViZDoom can give a new actor an id an old one had (seen as a dead player named
-  again in one 2A evaluation match), so a cached name is asked again every VERIFY_TICS (half a second).
+  again in one 2A evaluation match), so a cached name is asked again every VERIFY_TICS (4 tics).
   If nobody answers, it is dropped, and a corpse's id is dropped as soon as it is seen.
 
 Labels report an actor's position at its own tic or the one before, sampled slightly apart
@@ -39,7 +39,7 @@ REQ_FIELDS = 3  # x, y, used
 ANS_FIELDS = 2  # slot, distance
 MATCH_RADIUS = 20.0
 NO_ANSWER = 1e9
-VERIFY_TICS = 17  # half a second: with the two-tic answer delay, inside the validator's 35-tic target rule
+VERIFY_TICS = 4  # a reused id keeps a wrong name at most this plus the two-tic answer delay
 
 
 def _req(parity, asker, i):

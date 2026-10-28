@@ -63,8 +63,7 @@ class Perception:
                 c = self.contacts[oid] = Contact(oid, names[oid], t)
             elif t - c.last_seen > NEW_SIGHTING_GAP:
                 c.first_seen, c.burned = t, False
-            if names[oid] is not None:
-                c.slot = names[oid]
+            c.slot = names[oid]  # never keep an old name: ViZDoom can reuse a label id for another actor
             c.last_seen, c.visible = t, True
             c.x, c.y, c.z = x, y, lab.object_position_z
             c.vx, c.vy = lab.object_velocity_x, lab.object_velocity_y
