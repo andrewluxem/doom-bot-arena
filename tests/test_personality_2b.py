@@ -160,3 +160,30 @@ def test_idle_bots_fetch_a_better_weapon_than_any_held():
     b.attractors, b.rng = [(9.0, 9.0, 8)], random.Random(1)
     b.d.item_timing = False
     assert b._idle_goal(0, 0.0, 0.0, "roam")[1] == "roam"  # nothing better to fetch
+
+
+def test_reach_map_is_reused_briefly_and_nearby_only():
+    calls = []
+
+    class G:
+        def nearest(self, x, y):
+            return 0
+
+        def sector_open(self, s, live):
+            return live[s] > 0
+
+        def dijkstra(self, start, allow, live):
+            calls.append(start)
+            return {0: 0.0}, {}
+    b = C.PersonalityBot.__new__(C.PersonalityBot)
+    b.graph, b.live, b.lift_blocked_until = G(), {5: 0}, -1
+    b._dmap, b._dmap_t, b._dmap_key, b._dmap_xy = {}, None, None, None
+    b._reach(100, 0.0, 0.0)
+    b._reach(110, 50.0, 0.0)  # within REACH_TTL and REACH_MOVE: reused
+    assert len(calls) == 1
+    b._reach(120, 200.0, 0.0)  # moved too far
+    b._reach(121, 200.0, 0.0)
+    b.live = {5: 128}  # a remote door opened
+    b._reach(122, 200.0, 0.0)
+    b._reach(122 + C.REACH_TTL, 200.0, 0.0)  # too old
+    assert len(calls) == 4

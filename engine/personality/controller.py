@@ -62,6 +62,8 @@ REPLAN_TICS = 3 * TICRATE
 GOAL_TIMEOUT = 20 * TICRATE
 LIFT_GIVE_UP = 8 * TICRATE
 BLOCK_TICS = 15 * TICRATE
+REACH_TTL = TICRATE  # a path-cost map is reused this long while the bot stays within REACH_MOVE of where it
+REACH_MOVE = 128     # was computed and doors and lifts are unchanged: one full search is ~90 ms on MAP10
 RUN_SPEED = 15.0  # units per tic for planning arrivals; a running player tops out near 16.7
 ITEM_VIEW = 1536  # how far an item-timing bot checks item places it can see
 ITEM_FOV = 42.0  # half-angle, inside the 45-degree half view so an item at the edge is not misread
@@ -224,7 +226,7 @@ class PersonalityBot:
                            + [(w[1], w[2], w[3]) for w in self.weapon_things])
         for c in self.spot_cands:
             c["node"] = c["id"]
-        self._dmap, self._dmap_t = {}, None
+        self._dmap, self._dmap_t, self._dmap_key, self._dmap_xy = {}, None, None, None
         self.searched = {}  # contact key -> last_seen tic whose position the bot has already checked
         self.goal_unreachable = False
         self.blocked = {}  # (u, v) nav edge -> tic until which it is skipped (the bot got stuck on it)
@@ -501,12 +503,18 @@ class PersonalityBot:
 
     # ------------------------------------------------------------------ goals
     def _reach(self, t, x, y):
-        """Path cost from here to every node reachable now (closed remote doors excluded), once per decision."""
-        if self._dmap_t != t:
-            start = self.graph.nearest(x, y)
-            allow = nav.USABLE_KINDS if t >= self.lift_blocked_until else nav.USABLE_KINDS - {"lift"}
-            self._dmap = self.graph.dijkstra(start, allow=allow, live=self.live)[0] if start is not None else {}
-            self._dmap_t = t
+        """Path cost from here to every node reachable now (closed remote doors excluded). Reused for up to
+        REACH_TTL while the bot is within REACH_MOVE of where it was computed and the open doors and lift
+        permission are unchanged; a cost is then off by at most the distance moved."""
+        lifts = t >= self.lift_blocked_until
+        key = (lifts, tuple(sorted(s for s in self.live if self.graph.sector_open(s, self.live))))
+        if (self._dmap_t is not None and t - self._dmap_t < REACH_TTL and self._dmap_key == key
+                and math.hypot(x - self._dmap_xy[0], y - self._dmap_xy[1]) < REACH_MOVE):
+            return self._dmap
+        start = self.graph.nearest(x, y)
+        allow = nav.USABLE_KINDS if lifts else nav.USABLE_KINDS - {"lift"}
+        self._dmap = self.graph.dijkstra(start, allow=allow, live=self.live)[0] if start is not None else {}
+        self._dmap_t, self._dmap_key, self._dmap_xy = t, key, (x, y)
         return self._dmap
 
     def _choose_goal(self, t, v, x, y, armed, usable, latest, prev_behavior):
