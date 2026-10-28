@@ -24,7 +24,7 @@ from collections import Counter
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import roster  # noqa: E402
+from engine import items as itemfacts, roster  # noqa: E402
 
 TICRATE = 35
 TELEPORT_STEP = 64.0
@@ -32,10 +32,9 @@ WINDOW = 35
 STATIONARY_RADIUS = 32.0
 VIEW_CONE_HALF = 45.0
 RETREAT_MIN = 48.0
-ITEM_RESPAWN = 1050
+ITEM_RESPAWN = itemfacts.RESPAWN_TICS
 TIMED_SLACK = 70
-TIMED_ITEMS = {"Stimpack": "health", "Medikit": "health", "Soulsphere": "health",
-               "GreenArmor": "armor", "BlueArmor": "armor", "Megasphere": "armor"}
+TIMED_ITEMS = itemfacts.TIMED
 HOLD_RADIUS = 16.0
 HOLD_TICS = 70
 SEPARATION = 0.8
