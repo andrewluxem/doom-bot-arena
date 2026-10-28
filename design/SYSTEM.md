@@ -15,11 +15,11 @@ Clock `02:14` of `05:00`. Sorted by frags:
 | ID | Callsign | Name | Personality | F | D | HP | Weapon | State |
 |---|---|---|---|---|---|---|---|---|
 | 01 | VEX | Vex | Rusher | 14 | 4 | 22 (critical) | Shotgun | In combat, dueling KRN in the Central Hall |
-| 02 | KRN | Kronos | Tactician | 11 | 3 | 38 | Chaingun | In combat, dueling VEX |
+| 02 | KRN | Kronos | Tactician | 11 | 3 | 38 | Rocket Launcher | In combat, dueling VEX |
 | 03 | NUL | Null | Ambusher | 9 | 6 | 100 | Rocket Launcher | Stalking |
 | 04 | ASH | Ash | Berserker | 8 | 9 | 0 | — | Dead, respawn in 2.4s |
 | 05 | ORB | Orbit | Kiter | 7 | 5 | 85 | Plasma Rifle | Roaming |
-| 06 | HEX | Hex | Camper | 6 | 2 | 100 | Rail/Sniper | Holding angle |
+| 06 | HEX | Hex | Camper | 6 | 2 | 100 | Chaingun | Holding angle |
 | 07 | PYR | Pyre | Flanker | 5 | 11 | 64 | Super Shotgun | Collecting armor |
 | 08 | ZED | Zed | Erratic | 2 | 12 | 90 | Chainsaw | Hunting |
 
@@ -68,4 +68,4 @@ There is no icon set. Use the glyphs listed above in `--font-mono`, swatches (9p
 
 ## Components
 
-`DBA.tile`, `DBA.ctile`, `DBA.mapPanel`, `DBA.scoreStrip` / `scoreTable` / `scoreColumn`, `DBA.timeline`, `DBA.killfeed`, `DBA.telemetry`, `DBA.clock`, and `DBA.tethers` (B) all return HTML strings, styled by `components/bundle.css`. Wrap output in an element with class `dba`.
+`DBA.tile`, `DBA.ctile`, `DBA.mapPanel`, `DBA.scoreStrip` / `scoreTable` / `scoreColumn`, `DBA.timeline`, `DBA.killfeed`, `DBA.telemetry`, `DBA.clock`, and `DBA.tethers` (B) all return HTML strings, styled by `dba.css`. Wrap output in an element with class `dba`.

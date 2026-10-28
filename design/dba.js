@@ -3,11 +3,11 @@
   var NOW = 134, LEN = 300;
   var BOTS = [
     { id: '01', cs: 'VEX', name: 'Vex', role: 'Rusher', f: 14, d: 4, hp: 22, ar: 15, wp: 'Shotgun', st: 'combat', lab: 'IN COMBAT', tag: 'DUEL ▸ 02 KRN', beh: 'ENGAGING 02 KRN', zone: 'Central Hall', x: 182, y: 150, a: 0, opp: '02' },
-    { id: '02', cs: 'KRN', name: 'Kronos', role: 'Tactician', f: 11, d: 3, hp: 38, ar: 50, wp: 'Chaingun', st: 'combat', lab: 'IN COMBAT', tag: 'DUEL ▸ 01 VEX', beh: 'ENGAGING 01 VEX', zone: 'Central Hall', x: 220, y: 150, a: 180, opp: '01' },
+    { id: '02', cs: 'KRN', name: 'Kronos', role: 'Tactician', f: 11, d: 3, hp: 38, ar: 50, wp: 'Rocket Launcher', st: 'combat', lab: 'IN COMBAT', tag: 'DUEL ▸ 01 VEX', beh: 'ENGAGING 01 VEX', zone: 'Central Hall', x: 220, y: 150, a: 180, opp: '01' },
     { id: '03', cs: 'NUL', name: 'Null', role: 'Ambusher', f: 9, d: 6, hp: 100, ar: 100, wp: 'Rocket Launcher', st: 'stalk', lab: 'STALKING', tag: 'STALKING', beh: 'STALKING N DOOR', zone: 'North Corridor', x: 176, y: 76, a: 68 },
     { id: '04', cs: 'ASH', name: 'Ash', role: 'Berserker', f: 8, d: 9, hp: 0, ar: 0, wp: '—', st: 'dead', lab: 'DEAD', tag: 'DEAD', beh: 'RESPAWN IN 2.4s', zone: 'West Door', x: 122, y: 170, a: 0, resp: 2.4, killer: '01', killedAt: '02:11' },
     { id: '05', cs: 'ORB', name: 'Orbit', role: 'Kiter', f: 7, d: 5, hp: 85, ar: 25, wp: 'Plasma Rifle', st: 'roam', lab: 'ROAMING', tag: 'ROAMING', beh: 'ROAMING NE DECK', zone: 'NE Deck', x: 332, y: 58, a: 205 },
-    { id: '06', cs: 'HEX', name: 'Hex', role: 'Camper', f: 6, d: 2, hp: 100, ar: 75, wp: 'Rail/Sniper', st: 'hold', lab: 'HOLDING ANGLE', tag: 'HOLDING ANGLE', beh: 'HOLDING ANGLE → HALL', zone: 'SE Nest', x: 360, y: 246, a: -150 },
+    { id: '06', cs: 'HEX', name: 'Hex', role: 'Camper', f: 6, d: 2, hp: 100, ar: 75, wp: 'Chaingun', st: 'hold', lab: 'HOLDING ANGLE', tag: 'HOLDING ANGLE', beh: 'HOLDING ANGLE → HALL', zone: 'SE Nest', x: 360, y: 246, a: -150 },
     { id: '07', cs: 'PYR', name: 'Pyre', role: 'Flanker', f: 5, d: 11, hp: 64, ar: 40, wp: 'Super Shotgun', st: 'armor', lab: 'COLLECTING ARMOR', tag: 'ARMOR RUN', beh: 'COLLECTING ARMOR', zone: 'NW Armory', x: 56, y: 58, a: 120 },
     { id: '08', cs: 'ZED', name: 'Zed', role: 'Erratic', f: 2, d: 12, hp: 90, ar: 0, wp: 'Chainsaw', st: 'hunt', lab: 'HUNTING', tag: 'HUNTING', beh: 'HUNTING — NO TARGET', zone: 'South Corridor', x: 214, y: 258, a: -75 }
   ];
@@ -21,7 +21,7 @@
   /* ---------- frag events (deterministic) ---------- */
   var FIXED = [
     { t: 131.6, k: '01', v: '04', w: 'Shotgun' }, { t: 123.2, k: '02', v: '08', w: 'Chaingun' },
-    { t: 118.4, k: '06', v: '07', w: 'Rail' }, { t: 116.1, k: '03', v: '08', w: 'Rocket' },
+    { t: 118.4, k: '06', v: '07', w: 'Chaingun' }, { t: 116.1, k: '03', v: '08', w: 'Rocket' },
     { t: 112.7, k: '01', v: '07', w: 'Shotgun' }
   ];
   var EVENTS = (function () {
