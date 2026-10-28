@@ -151,3 +151,22 @@ def test_roster_leaves_out_na_and_placeholders(fake_metric):
     bundles = on_map(fake_bundles([match(5, [5, None, None, None, None], 20)]), "MAP10")  # 2, 4, 5, 7, 8 placeholders
     [x] = S.separation_vs_roster(bundles, sheets(), ["VEX"])
     assert (x["maps"]["MAP10"]["roster"]["computed"], x["maps"]["MAP10"]["roster"]["na"]) == (1, 0)  # only HEX
+
+
+def test_behavior_distances_need_point_three_in_80_percent():
+    far = {"A": {"behavior_shares": {"ROAMING": 1.0}}, "B": {"behavior_shares": {"ROAMING": 0.6, "HUNTING": 0.4}}}
+    near = {"A": {"behavior_shares": {"ROAMING": 1.0}}, "B": {"behavior_shares": {"ROAMING": 0.8, "HUNTING": 0.2}}}
+    assert S.total_variation({"ROAMING": 1.0}, {"ROAMING": 0.6, "HUNTING": 0.4}) == pytest.approx(0.4)
+    eight = S.behavior_distances([{"bots": far}] * 8 + [{"bots": near}] * 2)["A/B"]
+    assert (eight["far"], eight["ok"]) == (8, True)
+    seven = S.behavior_distances([{"bots": far}] * 7 + [{"bots": near}] * 3)["A/B"]
+    assert not seven["ok"]
+
+
+def test_median_kill_distance_leaves_out_melee_kills(tmp_path):
+    rows = [(0.0, 0.0, True)] * 20
+    far = [(300.0, 0.0, True)] * 20
+    B = write_bundle(tmp_path, {3: rows, 2: far}, [dict(kill(5), key="OB_MPCHAINSAW"), dict(kill(10), key="OB_MPROCKET")])
+    assert S.median_kill_distance(B, 3, {}) == 300.0
+    B2 = write_bundle(tmp_path, {3: rows, 2: far}, [dict(kill(5), key="OB_MPFIST")])
+    assert S.median_kill_distance(B2, 3, {}) is None

@@ -238,8 +238,13 @@ def _dist(a, b):
     return math.hypot(b["x"] - a["x"], b["y"] - a["y"])
 
 
+MELEE_KEYS = ("OB_MPFIST", "OB_MPCHAINSAW")
+
+
 def median_kill_distance(B, s, sheet):
-    return _median(_dist(B.rows[s][e["tic"]], B.rows[e["target"]][e["tic"]]) for e in B.frags_by(s))
+    """Over ranged kills only (milestone 2D): a fist or chainsaw kill, by its obituary key, is left out."""
+    return _median(_dist(B.rows[s][e["tic"]], B.rows[e["target"]][e["tic"]]) for e in B.frags_by(s)
+                   if e.get("key") not in MELEE_KEYS)
 
 
 def closing_share(B, s, sheet):
@@ -637,6 +642,27 @@ def metric_matrix(bundles, sheets):
     return out
 
 
+MIN_TV = 0.3  # the personality bench's MIN_DISTANCE
+
+
+def total_variation(a, b):
+    return 0.5 * sum(abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in set(a) | set(b))
+
+
+def behavior_distances(reports):
+    """Per pair of bots: total variation distance between their behavior distributions in each match, and in how
+    many matches it is at least MIN_TV (milestone 2D acceptance: in 80% of matches, for every pair)."""
+    codes = sorted({c for r in reports for c in r["bots"]})
+    out = {}
+    for i, a in enumerate(codes):
+        for b in codes[i + 1:]:
+            tv = [round(total_variation(r["bots"][a]["behavior_shares"], r["bots"][b]["behavior_shares"]), 4)
+                  for r in reports]
+            far = sum(1 for d in tv if d >= MIN_TV)
+            out[f"{a}/{b}"] = {"tv": tv, "far": far, "matches": len(tv), "ok": far >= SEPARATION * len(tv)}
+    return out
+
+
 def shared_tops(reports):
     """Top behavior per bot per match, and per pair of bots the matches in which their tops are the same."""
     tops = {r["bundle"]: {c: next(iter(b["behavior_shares"]), None) for c, b in r["bots"].items()} for r in reports}
@@ -669,14 +695,19 @@ def report_vs_roster(sep, matrix, reports, sheets):
         rows = [x for x in sep if x["bot"] == sh["code"]]
         ok = [x["metric"] for x in rows if x["gates"]]
         print(f"  {sh['code']}: " + (f"ACCEPTED by {', '.join(ok)}" if ok else "not accepted"))
+    dist = behavior_distances(reports)
+    print(f"== behavior distributions: every pair must be at least {MIN_TV} apart in total variation in "
+          f"{SEPARATION:.0%} of matches")
+    for pair, x in sorted(dist.items(), key=lambda kv: kv[1]["far"]):
+        print(f"  {pair}: {x['far']}/{x['matches']}{'' if x['ok'] else '  UNDER'}  min {min(x['tv']):.2f}  "
+              f"median {_median(x['tv']):.2f}")
+    bad = [p for p, x in dist.items() if not x["ok"]]
+    print(f"  {'all pairs apart' if not bad else f'{len(bad)} pair(s) under: ' + ', '.join(bad)}")
     tops, pairs = shared_tops(reports)
-    print("== top behavior per bot per match")
+    print("== top behavior per bot per match (report only; not part of acceptance since milestone 2D)")
     for bundle, t in tops.items():
         print(f"  {bundle}: " + ", ".join(f"{c} {b}" for c, b in t.items()))
-    limit = 2
-    print(f"== pairs sharing a top behavior (allowed in at most {limit} of {len(reports)} matches)")
-    for pair, n in sorted(pairs.items(), key=lambda kv: -kv[1]):
-        print(f"  {pair}: {n}{'  OVER' if n > limit else ''}")
+    print("  pairs sharing a top behavior: " + ", ".join(f"{p} {n}" for p, n in sorted(pairs.items(), key=lambda kv: -kv[1])))
     print("== every metric for every bot: median over its matches per map | other seven's median (range), same sheet")
     for metric, per_bot in matrix.items():
         print(f"  {metric}")
@@ -717,7 +748,7 @@ def main(argv=None):
             tops, pairs = shared_tops(reports)
             with open(args.json, "w") as f:
                 json.dump({"matches": reports, "separation": sep, "matrix": matrix, "top_behaviors": tops,
-                           "shared_top_pairs": pairs}, f, indent=1)
+                           "shared_top_pairs": pairs, "behavior_distances": behavior_distances(reports)}, f, indent=1)
         return 0
     sep = separation(bundles, sheets, codes)
     for rep in reports:

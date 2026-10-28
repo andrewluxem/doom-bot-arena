@@ -46,7 +46,7 @@ All eight bots are personalities in milestone 2B, so the placeholders come from 
 - **Gating on a map.** A personality's metric gates on a map if it fails for at least 80% of that map's baseline bot-matches, against the personality's own threshold. A baseline bot-match where the metric is `n/a` is left out.
 - **Sheet parameters.** Metrics that read the sheet (`engagement_distance_in_band_share` reads `preferred_range`, `retreat_on_close_share` reads `retreat_distance`) are computed for baseline bots with the personality's sheet. In 2A each placeholder's own sheet was used, which made no difference for the 2A metrics.
 - **Acceptance.** A bot is accepted if at least one of its metrics gates on every map evaluated and passes in at least 80% of its matches (8 of 10 on MAP10 and E1M5).
-- **Rank metrics cannot gate against an all-placeholder baseline.** In every match at least two of the eight bots hold rank 1 or 2 (ties share the better rank), so at least 25% of baseline bot-matches pass a `<= 2`. At most 75% fail, under the 80% the rule needs. This affects `distance_traveled_rank` (NUL's 2A gate) and `armor_pickups_rank` (PYR).
+- **Rank metrics cannot gate against an all-placeholder baseline** (they can against the roster, milestone 2C on). In every match at least two of the eight bots hold rank 1 or 2 (ties share the better rank), so at least 25% of baseline bot-matches pass a `<= 2`. At most 75% fail, under the 80% the rule needs. This affects `distance_traveled_rank` (NUL's 2A gate) and `armor_pickups_rank` (PYR).
 - `tools/signatures.py --baseline <bundles> <bundles>` applies this per map. It prints every metric for all eight bots against the baseline, and the pairs of bots that share a top behavior.
 
 Applied to the 2B evaluation: five matches per map at seeds 301–305, against the baseline at seeds 201–205 (E1M5 seed 206 in place of 202). Sheets carry the resulting `gate` flags.
@@ -79,7 +79,7 @@ From milestone 2C the placeholder baseline no longer decides gating; `make docke
 - **Roster bot-matches.** For a bot on a map, every slot of the other seven personalities in that map's evaluation matches: 35 per map at five matches. Each is measured against the bot's own threshold and, for metrics that read the sheet, with the bot's sheet. One where the metric is `n/a` is left out.
 - **Separates on a map** if at least 80% of the roster bot-matches on that map fail it.
 - **Gates** if it separates on every map evaluated and the bot passes it in at least 80% of its matches (8 of 10 on MAP10 and E1M5). Acceptance is at least one gating metric per bot.
-- Rank metrics can separate now: in a match where the bot holds rank 1 or 2, the other seven fill at least one more rank `<= 2`, so about 1 in 7 roster bot-matches pass.
+- **Rank metrics are valid against the roster.** The bot's own slot is not in its roster bot-matches, so a bot that holds rank 1 or 2 leaves at most one other rank `<= 2` in that match (more only on ties): about 1 in 7 roster bot-matches pass, under the 20% the rule allows. From milestone 2D NUL's `distance_traveled_rank` gates (2C: met 10/10, the other seven 5/35 on each map).
 - `tools/signatures.py` applies this rule whenever every bot in the bundles is a personality (`make signatures-2c`). It prints every metric for all eight bots against the other seven's median and range, and the pairs of bots that share a top behavior.
 
 Applied to the 2C evaluation (`make docker-eval-2c`): five matches per map at seeds 401–405, spots scored by the traffic of two placeholder matches per map (seeds 211, 212). Roster pass is how many of the other seven personalities' bot-matches pass the bot's threshold (n/a left out).
@@ -128,7 +128,7 @@ Median engagement distance over all of the bot's engagement tics in the displaye
 ASH `< 96` until milestone 2C, when it left ASH's sheet (0 of 10 in 2B).
 
 ### median_kill_distance
-Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's kills. `n/a` with no kills. Where a rusher fights, not where it first sees someone.
+Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's ranged kills: kills whose obituary key is `OB_MPFIST` or `OB_MPCHAINSAW` are left out (milestone 2D; before, ASH passed by construction). `n/a` with no ranged kills. Where a rusher fights, not where it first sees someone.
 
 VEX `< 140`, gating (`< 160` until milestone 2B).
 
@@ -240,3 +240,5 @@ PYR `>= 0.5`, descriptive.
 ## Behavior distribution
 
 Not a signature, but part of milestone 2A's acceptance: a bot's **behavior share** is the fraction of its alive tics in the displayed match spent in each `behavior` value, `RESPAWNING` included. Its top behavior is the one with the largest share.
+
+**Milestone 2D: total variation instead of top behaviors.** Behavior acceptance is the personality bench's measure applied to every pair of bots: the total variation distance between two bots' behavior shares in a match, `½ Σ |p(b) − q(b)|` over every behavior value, must be at least 0.3 in at least 8 of 10 matches, for every one of the 28 pairs. Until milestone 2C the rule was that no two bots share a top behavior in more than 2 of 10 matches; `tools/signatures.py` still prints top behaviors and the pairs that share them, as a report line only.

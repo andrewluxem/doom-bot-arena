@@ -56,7 +56,7 @@ signature:
   - metric: distance_traveled_rank   # 1 = least of the 8
     op: "<="
     value: 2
-    gate: false   # a rank cannot separate from an all-placeholder baseline (docs/SIGNATURES.md)
+    gate: true   # milestone 2D: separates against the roster (2C: 10/10, the other seven 14% on each map)
   - metric: kills_from_hold_share   # kills after 70+ tics within 16 units of the kill spot
     op: ">="
     value: 0.5

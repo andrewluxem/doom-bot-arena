@@ -52,4 +52,4 @@ signature:
   - metric: first_contact_avoidance_share   # fresh enemies in view it does not take on
     op: ">="
     value: 0.5
-    gate: false
+    gate: true   # milestone 2D: separates against the roster (2C: 10/10, the other seven 0-3%)
