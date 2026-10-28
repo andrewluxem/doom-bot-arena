@@ -111,3 +111,37 @@ def test_a_metric_its_personality_fails_cannot_gate(fake_metric):
     bundles = fake_bundles([match(50, [20] * 5), match(50, [20] * 5)])
     [x] = S.separation(bundles, sheets(), ["VEX"])
     assert x["separates"] and not x["can_gate"]
+
+
+def on_map(bundles, map_name, seed0=1):
+    for i, B in enumerate(bundles):
+        B.map_key, B.m, B.path = (map_name, "sha"), {"seed": seed0 + i}, f"{map_name}-{i}"
+    return bundles
+
+
+def baseline(map_name, matches):
+    """All-placeholder bundles: every slot is a baseline bot-match."""
+    out = on_map(fake_bundles(matches), map_name)
+    for B in out:
+        B.controller = {s: S.PLACEHOLDER for s in B.slots}
+    return out
+
+
+def test_baseline_separation_is_per_map_and_gates_only_on_every_map(fake_metric):
+    shs = sheets()
+    evals = on_map(fake_bundles([match(5, [0] * 5)] * 5), "MAP10") + on_map(fake_bundles([match(5, [0] * 5)] * 5), "E1M5")
+    # seven slots per fake match: MAP10's baseline passes 5 of 35 (86% fail), E1M5's 15 of 35 (57% fail)
+    base = {("MAP10", "sha"): baseline("MAP10", [match(5, [20] * 5, 20)] * 5),
+            ("E1M5", "sha"): baseline("E1M5", [match(5, [5, 5, 20, 20, 20], 20)] * 5)}
+    [x] = S.separation_vs_baseline(evals, base, shs, ["VEX"])
+    assert x["maps"]["MAP10"]["baseline"]["passes"] == 5  # the VEX slot of each baseline match (value 5) passes
+    assert x["maps"]["MAP10"]["separates"] and not x["maps"]["E1M5"]["separates"]
+    assert x["separates_on"] == ["MAP10"] and not x["gates"] and not x["accepts"]
+    assert (x["passes"], x["matches"]) == (10, 10)
+
+
+def test_baseline_must_be_all_placeholders(fake_metric):
+    evals = on_map(fake_bundles([match(5, [0] * 5)]), "MAP10")
+    base = {("MAP10", "sha"): on_map(fake_bundles([match(5, [20] * 5)]), "MAP10")}  # slots 1 and 6 are personalities
+    with pytest.raises(SystemExit):
+        S.separation_vs_baseline(evals, base, sheets(), ["VEX"])

@@ -142,6 +142,7 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array):
             raise SlotFailure(f"controller returned behavior {behavior!r} at tic {t}")
         prev_alive = alive
 
+        sent = t < n_tics - 1  # the last state is recorded and no action follows it
         rows.write(json.dumps({
             "tic": t, "slot": slot,
             "x": round(v["POSITION_X"], 3), "y": round(v["POSITION_Y"], 3), "angle": round(v["ANGLE"], 3) % 360.0,
@@ -149,6 +150,7 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array):
             "alive": alive, "behavior": behavior, "utility_scores": utility,
             "weapon_name": info.get("weapon_name"), "target_slot": info.get("target_slot"), "sector": sector,
             "hitcount": int(v["HITCOUNT"]), "damagecount": int(v["DAMAGECOUNT"]), "damage_taken": int(v["DAMAGE_TAKEN"]),
+            "attack": bool(sent and action.get("ATTACK")),
         }) + "\n")
         fragvec.write(json.dumps([t] + [int(v[f"PLAYER{i}_FRAGCOUNT"]) for i in range(1, 9)]) + "\n")
         for line in (st.notifications_buffer or "").splitlines():
@@ -170,7 +172,7 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out, peers_array):
 
         heartbeat[slot - 1] = t
         meta["steps"] = t + 1
-        if t < n_tics - 1:
+        if sent:
             for c in cmds:
                 g.send_game_command(c)
             g.make_action(game.action_vector(action), 1)

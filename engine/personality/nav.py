@@ -16,6 +16,19 @@ Exit lines (map.json `exit`) are walls: crossing or using one kills the player. 
 (map.json `obstacles`: trees, columns, lamps, barrels) are discs nodes and edges keep clear of.
 Freedoom 0.13 MAP01's north third is reachable only by its fast lift or its two
 teleporters, and one pocket (a deathmatch start and the plasma rifle) only by the lift.
+
+The graph keeps every strongly connected region of at least MIN_REGION nodes, and every node
+that can walk into one (a ledge or a one-way drop). Until VERSION 5 it kept only the largest
+region, which left bots spawning elsewhere with no graph at all: freedoom2 MAP10 splits into
+two regions on the static map (floors that W1/S1 lines lower in play are not modelled), and
+three of its ten deathmatch starts are in the smaller one. An edge between two regions is one
+way (else they would be one region), so it is kept only toward a larger region: a way out of a
+pocket, never a way into one. MAP10 has a pocket of 164 nodes (one deathmatch start) entered by
+a WR teleporter and left only by an S1 switch the graph does not model; nothing paths into it.
+Search never leaves the start's own region, so goals elsewhere are simply unreachable. `region_id` numbers the kept regions by size
+(0 the largest; -1 for nodes that only lead into one), and `nearest` snaps to region 0 whenever a
+node of it is in straight-line reach, as VERSION 5 did, so a side pocket never captures a bot
+standing next to the main region.
 """
 
 import heapq
@@ -26,7 +39,7 @@ import pickle
 from engine.geometry import (PLAYER_HEIGHT, STEP_HEIGHT, Grid, MapGeometry, dist_point_segment, orient,
                              segments_cross)
 
-VERSION = 5
+VERSION = 6
 GRID = 32
 RADIUS = 16  # player radius
 NODE_CLEARANCE = 17
@@ -39,7 +52,9 @@ REMOTE_DOORS = {2, 4, 29, 46, 61, 63, 86, 90, 103, 105, 106, 108, 109, 111, 112,
 # Key-locked doors. Keys do not spawn in deathmatch (MF_NOTDMATCH), so these never open: walls.
 LOCKED_DOORS = {26, 27, 28, 32, 33, 34, 99, 133, 134, 135, 136, 137}
 LIFTS = {10, 21, 62, 88, 120, 121, 122, 123}
-TELEPORTS = {39, 97, 125, 126}
+TELEPORTS = {39, 97}  # W1 and WR teleport; 125 and 126 teleport monsters only, so players walk across them
+MIN_REGION = 64
+TOUCH = 36  # player radius 16 + pickup radius 20: Doom touches boxes
 USABLE_KINDS = {"walk", "door", "remote_door", "teleport", "lift"}
 LIFT_COST = 160  # the platform takes about 3 s to come round
 TELEPORT_APPROACH = 72
@@ -277,7 +292,7 @@ class NavGraph:
                 self.edges[i].append((target, d + 16, "teleport", ln.id))
 
     def _keep_main_component(self, b):
-        """Drop nodes not reachable both ways from the largest strongly connected walk region."""
+        """Keep the strongly connected regions of MIN_REGION nodes or more and the nodes that lead into them."""
         n = len(self.nodes)
         fwd = [[j for j, _, k, _ in self.edges[i] if k in USABLE_KINDS] for i in range(n)]
         rev = [[] for _ in range(n)]
@@ -295,42 +310,96 @@ class NavGraph:
                         stack.append(v)
             return seen
 
-        best = set()
-        tried = set()
+        regions, tried = [], set()
         for i in range(n):
-            if i in tried or i in best:
+            if i in tried:
                 continue
             comp = reach(i, fwd) & reach(i, rev)
             tried |= comp
-            if len(comp) > len(best):
-                best = comp
-        keep = sorted(best)
+            regions.append(comp)
+        kept = set().union(*([c for c in regions if len(c) >= MIN_REGION] or [max(regions, key=len)]))
+        into, stack = set(kept), list(kept)  # walk the reverse edges out of the kept regions
+        while stack:
+            u = stack.pop()
+            for v in rev[u]:
+                if v not in into:
+                    into.add(v)
+                    stack.append(v)
+        big = sorted((c for c in regions if len(c) >= MIN_REGION), key=len, reverse=True) or [max(regions, key=len)]
+        self.regions = [len(c) for c in big]
+        rid = {i: k for k, c in enumerate(big) for i in c}
+        keep = sorted(into)
+        self.region_id = [rid.get(i, -1) for i in keep]
+        size = lambda i: len(big[rid[i]]) if i in rid else 0
+
+        def kept_edge(i, j):
+            if j not in into:
+                return False
+            if i in rid and (j not in rid or rid[j] != rid[i]):
+                return j in rid and size(j) > size(i)  # one way: only out to a larger region
+            return True
         remap = {old: new for new, old in enumerate(keep)}
         self.nodes = [self.nodes[i] for i in keep]
-        self.edges = [[(remap[j], c, k, info) for j, c, k, info in self.edges[i] if j in remap] for i in keep]
+        self.edges = [[(remap[j], c, k, info) for j, c, k, info in self.edges[i] if kept_edge(i, j)] for i in keep]
         self.node_grid = Grid(b, LINK_RADIUS)
         for i, (x, y, _) in enumerate(self.nodes):
             self.node_grid.add_box(i, x, y, x, y)
 
     # ------------------------------------------------------------ queries
     def nearest(self, x, y, max_dist=192, need_clear=True):
-        """Nearest node reachable in a straight line from (x, y)."""
-        cands = []
-        for r in (64, 128, max_dist):
-            cands = [(math.hypot(self.nodes[i][0] - x, self.nodes[i][1] - y), i)
-                     for i in self.node_grid.query_box(x - r, y - r, x + r, y + r)]
-            if cands:
-                break
-        for d, i in sorted(cands):
-            if d > max_dist:
-                break
-            if not need_clear or self.move_check((x, y), self.nodes[i][:2]) is not None:
-                return i
-        return min(cands)[1] if cands else None
+        """Nearest node reachable in a straight line from (x, y): of the largest region if there is one
+        in reach, else of any region. Without a clear one, the nearest node of the largest region."""
+        fallback = None
+        for main_only in (True, False):
+            cands = []
+            for r in (64, 128, max_dist):
+                cands = [(math.hypot(self.nodes[i][0] - x, self.nodes[i][1] - y), i)
+                         for i in self.node_grid.query_box(x - r, y - r, x + r, y + r)
+                         if not main_only or self.region_id[i] == 0]
+                if cands:
+                    break
+            for d, i in sorted(cands):
+                if d > max_dist:
+                    break
+                if not need_clear or self.move_check((x, y), self.nodes[i][:2]) is not None:
+                    return i
+            if fallback is None and cands:
+                fallback = min(cands)[1]
+        return fallback
 
-    def astar(self, start, goal, live=None, allow=USABLE_KINDS, blocked=()):
+    def thing_node(self, x, y, max_dist=128):
+        """Where a bot stands to pick up a thing at (x, y): the nearest node (of the largest region if one
+        qualifies) that can walk onto it, or touch it by Doom's pickup rule (boxes within 16 + 20 units, the
+        thing's floor 8 below to 56 above the player's, no wall between). The walk is checked from the node,
+        since dropping off a ledge is a move and climbing one is not. None if no node qualifies.
+        Until spots version 4 things snapped to the nearest node whatever lay between: MAP10's plasma rifle at
+        (-2008, 1036), on a platform that is a region of its own, snapped to a main-region node 49 units below."""
+        s = self.geo.sector_at(x, y)
+        fz = self.floor[s] if s is not None else None
+        cands = sorted((math.hypot(self.nodes[i][0] - x, self.nodes[i][1] - y), i)
+                       for i in self.node_grid.query_box(x - max_dist, y - max_dist, x + max_dist, y + max_dist))
+        for main_only in (True, False):
+            for d, i in cands:
+                if d > max_dist:
+                    break
+                nx, ny, ns = self.nodes[i]
+                if main_only and self.region_id[i] != 0:
+                    continue
+                if d < 1 or self.move_check((nx, ny), (x, y)) is not None:
+                    return i
+                if (fz is not None and abs(nx - x) < TOUCH and abs(ny - y) < TOUCH
+                        and -8 <= fz - self.floor[ns] <= PLAYER_HEIGHT and not self._wall_between((nx, ny), (x, y))):
+                    return i
+        return None
+
+    def _wall_between(self, p, q):
+        x0, y0, x1, y1 = min(p[0], q[0]), min(p[1], q[1]), max(p[0], q[0]), max(p[1], q[1])
+        return any(ln.solid and segments_cross(p, q, ln.a, ln.b) for ln in self.lines_near(x0, y0, x1, y1, 1))
+
+    def astar(self, start, goal, live=None, allow=USABLE_KINDS, blocked=(), penalty=None):
         """Node path start..goal, or None. remote_door edges need the sector open in `live`;
-        `blocked` holds (u, v) edges to skip (where the bot got stuck)."""
+        `blocked` holds (u, v) edges to skip (where the bot got stuck). `penalty(v)` >= 0 scales the
+        cost of edges into v by 1 + penalty(v), so the heuristic stays admissible."""
         if start is None or goal is None:
             return None
         gx, gy, _ = self.nodes[goal]
@@ -354,7 +423,7 @@ class NavGraph:
                     continue
                 if (u, v) in blocked:
                     continue
-                ng = g + c
+                ng = g + (c * (1.0 + penalty(v)) if penalty is not None else c)
                 if ng < cost.get(v, math.inf):
                     cost[v], came[v] = ng, u
                     heapq.heappush(openq, (ng + h(v), ng, v))

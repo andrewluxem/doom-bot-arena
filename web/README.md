@@ -1,6 +1,6 @@
 # web/: spectator viewer (Option A)
 
-A static site that replays a match bundle (`docs/MATCH_FORMAT.md`, schema 1, 2 or 3; schema 3's damage counters are not shown yet): eight POV videos and the overhead map on one clock, standings, frag timeline, kill feed, single-bot focus. Vite and vanilla JS. `design/tokens.css` and `design/dba.css` are imported unchanged; `src/render.js` ports the `dba.js` renderers to take live per-tic state.
+A static site that replays a match bundle (`docs/MATCH_FORMAT.md`, schema 1 to 4; schema 3's damage counters and schema 4's `attack` are not shown yet): eight POV videos and the overhead map on one clock, standings, frag timeline, kill feed, single-bot focus. Vite and vanilla JS. `design/tokens.css` and `design/dba.css` are imported unchanged; `src/render.js` ports the `dba.js` renderers to take live per-tic state.
 
 ```
 npm install

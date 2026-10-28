@@ -39,3 +39,36 @@ Weapons: CG chaingun, saw chainsaw, SG shotgun, SSG super shotgun, RL rocket lau
   - E1M5 is a Doom 1 map with no super shotgun, so VEX and PYR resolve to the shotgun. Its 47 armor items suit PYR's `armor_pickups_rank`.
 
 **What neither has:** a berserk pack reachable without a lift. E1M1 (8 starts, berserk reachable from 4) is the candidate third map for ASH's berserk, alongside MAP10 and E1M5 rather than replacing either: its chainsaw is reachable from none. No matches have been run on any of the three.
+
+## Found in milestone 2B: regions and pockets
+
+On the static map (map.json heights, so floors that W1/S1 lines lower during play are not modelled), both maps split into separate navigation regions. The survey's reach column already showed this ("7/10"), but it was not called out. Nav graph version 6 (`engine/personality/nav.py`) keeps every region of 64 nodes or more. One-way edges are kept only toward a larger region.
+
+| map | largest region | other regions with deathmatch starts | how the others connect in play |
+|---|---|---|---|
+| MAP10 | 5,887 nodes, 6 starts | 1,634 nodes, 2 starts, plus a 371-node region that drops into it, 1 start | W1/S1 floor-lowering lines and key doors (keys never spawn in deathmatch) |
+| MAP10 | | a 164-node pocket at (−2080, −1056), 1 start | entered by WR teleporter lines tagged 12; left only by an S1 floor switch (line 2918) |
+| E1M5 | 4,643 nodes, 8 starts | the 291-node exit room at (−1188, 1088), 1 start, with a rocket launcher 20 units from the start | left only by a red key door, or by the exit switch, which kills the player under `sv_noexit` (`OB_EXIT`) |
+
+- **Placeholders.** In the MAP10 baseline (seed 201), three of the eight placeholders spent most of the match in the 1,634-node region. They crossed between regions only by respawning. Placeholders that spawn in E1M5's exit room stay there until they die, usually on the exit switch, which they press at random.
+- **Personalities** keep to the region they spawn in. A bot spawned into a pocket (fewer than 600 nodes reachable, every door open) uses the pocket's exit switch once no enemy is in view, or the console `kill` where there is none (MAP10's pocket). It then respawns elsewhere. Both count as suicides.
+- **Level-start spawns are random** (MATCH_FORMAT section 2), so a bot starts in a pocket in roughly half the matches on each map.
+
+**Weapons a bot in the largest region can reach.** Since spots version 4, a thing counts as reachable only from a node that can walk onto it, or touch it by Doom's pickup rule (`NavGraph.thing_node`).
+- **MAP10's plasma rifles cannot be reached from it.** One sits on a platform that is a region of its own; until v4 it snapped to a node 49 units below, and ORB chased it all match. The other is in the teleporter pocket. ORB's best reachable weapon there is the chaingun.
+- **E1M5's rocket launchers cannot be reached from it.**
+  - One is in the exit room.
+  - The other, at (1056, −672), is in a 327-node region whose way up is an SR lift (sector 178). The map data stores that lift raised, floor and ceiling both 144, so the graph has no node on it.
+  - Placeholders reached that launcher in 2 of the 5 baseline matches.
+  - KRN and NUL fight with the shotgun on E1M5.
+- **On MAP01**, the touch rule restores the rocket launcher at (2088, −224), 32 units up a ledge and picked up from below. The chainsaw (1320, 704) and one blue armor still have no node.
+
+**Placeholder frag rate** (`make docker-baseline`, five five-minute matches per map, all eight slots placeholders, seeds 201–205; E1M5 seed 206 replaced 202, whose capture failed twice on the host player-name fault):
+
+| map | frags per minute, all eight bots | range over matches | suicides in 5 matches |
+|---|---|---|---|
+| MAP01 | 11.92 | 11.00–13.40 | 14 |
+| MAP10 | 2.12 | 1.00–2.80 | 4 |
+| E1M5 | 6.88 | 6.40–7.60 | 14 |
+
+MAP10's rate is a sixth of MAP01's: the map is large and split, and placeholders roaming at random rarely meet. Kill-based metrics on MAP10 rest on few kills per bot.

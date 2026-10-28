@@ -4,6 +4,11 @@ name: Ash
 archetype: berserker
 colorset: 3
 
+# Dial re-rolls (ZED's mechanic): none.
+reroll_interval_s: null
+reroll_seed_from_match: false
+ranges: null
+
 perception:
   reaction_time_ms: 200
   aim_accuracy: 0.5
@@ -14,6 +19,8 @@ temperament:
   self_preservation: 0.0
   engage_health_min: 0
   preferred_range: [0, 64]
+  retreat_distance: null
+  flank: false
 
 behavior_weights:
   HUNTING: 1.0
@@ -38,6 +45,8 @@ signature:
   - metric: melee_damage_share
     op: "=="
     value: 1.0
+    gate: true
   - metric: median_engagement_distance
     op: "<"
     value: 96
+    gate: true

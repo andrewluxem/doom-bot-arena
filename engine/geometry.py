@@ -136,9 +136,74 @@ class MapGeometry:
         return min(found, key=lambda s: (self._sector_box[s][2] - self._sector_box[s][0]) *
                    (self._sector_box[s][3] - self._sector_box[s][1]))
 
+    def near_shared_line(self, x, y, a, b, tol):
+        """Is (x, y) within tol of a line with sector a on one side and b on the other?"""
+        for l in self.lines:
+            if {l["front_sector"], l["back_sector"]} == {a, b} and \
+                    dist_point_segment((x, y), (l["x1"], l["y1"]), (l["x2"], l["y2"])) <= tol:
+                return True
+        return False
+
     def near_sector_boundary(self, x, y, tol=1.5):
         for s in self._sector_grid.query_point(x, y):
             for a, b in self._sector_lines[s]:
                 if dist_point_segment((x, y), a, b) <= tol:
                     return True
         return False
+
+
+class LineOfSight:
+    """2.5D sight between two points against map.json, after Doom's P_CheckSight.
+
+    The sight line runs from an eye at height z0 to a target spanning heights [zb, zt]. Every
+    linedef it crosses narrows the window of visible slopes: a one-sided line blocks; a two-sided
+    line blocks unless its opening (the higher floor to the lower ceiling) leaves part of the target
+    in view. Things never block sight. Heights are static map.json values unless `live` gives
+    {sector: (floor, ceiling)}, so a door closed in the map data is closed here.
+    """
+
+    def __init__(self, map_data):
+        self.floor = [s["floor"] for s in map_data["sectors"]]
+        self.ceil = [s["ceiling"] for s in map_data["sectors"]]
+        self.lines = [((l["x1"], l["y1"]), (l["x2"], l["y2"]), l["front_sector"], l["back_sector"], l["two_sided"])
+                      for l in map_data["linedefs"]]
+        self.grid = Grid(map_data["bounds"], 128)
+        for ln in self.lines:
+            self.grid.add_box(ln, ln[0][0], ln[0][1], ln[1][0], ln[1][1])
+
+    def _heights(self, s, live):
+        if live and s in live:
+            return live[s]
+        return self.floor[s], self.ceil[s]
+
+    def clear(self, x0, y0, z0, x1, y1, zb, zt, live=None):
+        dx, dy = x1 - x0, y1 - y0
+        total = math.hypot(dx, dy)
+        if total < 1e-6:
+            return True
+        top, bottom = (zt - z0) / total, (zb - z0) / total
+        for (a, b, front, back, two) in self.grid.query_box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)):
+            wx, wy = b[0] - a[0], b[1] - a[1]
+            den = dx * wy - dy * wx
+            if abs(den) < 1e-12:
+                continue
+            qx, qy = a[0] - x0, a[1] - y0
+            s = (qx * wy - qy * wx) / den  # fraction along the sight line
+            u = (qx * dy - qy * dx) / den  # fraction along the linedef
+            if not (0.0 < s < 1.0 and 0.0 <= u <= 1.0):
+                continue
+            if not two or front is None or back is None:
+                return False
+            ff, fc = self._heights(front, live)
+            bf, bc = self._heights(back, live)
+            lo, hi = max(ff, bf), min(fc, bc)
+            if hi <= lo:
+                return False
+            dist = s * total
+            if ff != bf:
+                bottom = max(bottom, (lo - z0) / dist)
+            if fc != bc:
+                top = min(top, (hi - z0) / dist)
+            if top <= bottom:
+                return False
+        return True

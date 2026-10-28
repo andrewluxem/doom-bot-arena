@@ -4,6 +4,11 @@ name: Kronos
 archetype: tactician
 colorset: 1
 
+# Dial re-rolls (ZED's mechanic): none.
+reroll_interval_s: null
+reroll_seed_from_match: false
+ranges: null
+
 perception:
   reaction_time_ms: 120
   aim_accuracy: 0.8
@@ -14,6 +19,8 @@ temperament:
   self_preservation: 0.8
   engage_health_min: 50
   preferred_range: [256, 640]
+  retreat_distance: null
+  flank: false
 
 behavior_weights:
   HUNTING: 0.6
@@ -38,6 +45,8 @@ signature:
   - metric: item_timing_hit_rate   # arrives within 2s of a timed item respawning
     op: ">"
     value: 0.5
+    gate: true
   - metric: engagements_started_below_50hp_share
     op: "<"
     value: 0.1
+    gate: false   # 2B baseline: 31% (E1M5) and 62% (MAP10) of placeholders pass

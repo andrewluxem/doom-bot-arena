@@ -5,16 +5,21 @@ Two modes (characters/README.md `spots.mode`):
   sightlines_max               a perch: the longest sightlines, clipped at the far end of
                                the bot's preferred_range
   sightlines_min_near_traffic  an ambush: little exposure, but sightlines that cover
-                               traffic inside the bot's preferred_range, off the traffic itself.
-                               score = sqrt(covered traffic) * (1 - exposure)^2 * sqrt(1 - own traffic);
+                               routes within ROUTE_RADIUS, off the routes themselves.
+                               score = sqrt(covered routes) * (1 - exposure)^2 * sqrt(1 - own traffic);
                                with a plain product the open central room won, since coverage
                                grows with exposure
 
 Sight is 2.5D: a ray from eye height (floor + 41) stops at a one-sided line, a closed
 door, or a two-sided line whose far sector's floor is above, or ceiling below, eye height.
 
-Traffic is how often a nav node lies on the shortest path between two attractors
-(deathmatch starts, weapons, items). Everything is cached per map and parameters.
+Routes are the nav-graph shortest paths from every deathmatch start to every weapon and timed
+item: where players go after they spawn. A route is covered by a spot when one of its nodes
+lies within ROUTE_RADIUS of the spot and in its sight; own traffic is how many routes pass
+through the spot's node, normalised to the busiest node. (Spots version 1 scored covered
+traffic, the visit counts of shortest paths between every pair of starts, weapons and items,
+seen inside the bot's preferred_range. On MAP01 that put NUL's holds in sight of an enemy only
+0.16 of the time; tools/hold_contact.py.) Everything is cached per map and parameters.
 """
 
 import json
@@ -23,14 +28,17 @@ import os
 
 import numpy as np
 
+from engine import items as itemfacts
 from engine.geometry import EYE_HEIGHT
 from engine.personality import nav
 
-VERSION = 1
+VERSION = 4
+ROUTE_RADIUS = 256.0
 RAYS = 72
 RAY_MAX = 2048.0
 CANDIDATE_GRID = 64  # score nav grid nodes on a coarser lattice
 TOP = 40
+TOP_SIDE = 8  # candidates kept per smaller nav region (nav.py region_id), so a bot spawning there has spots
 MIN_SPACING = 128
 MODES = ("sightlines_max", "sightlines_min_near_traffic")
 
@@ -77,24 +85,26 @@ class Sight:
         return out
 
 
-def traffic(graph):
-    """Shortest-path visit counts per nav node between every pair of attractors."""
+def routes(graph):
+    """Node lists of the shortest paths from every deathmatch start to every weapon and timed item."""
     m = graph.geo.m
-    pts = ([(s["x"], s["y"]) for s in m["deathmatch_starts"]]
-           + [(w["x"], w["y"]) for w in m["weapons"] if w["in_deathmatch"]]
-           + [(i["x"], i["y"]) for i in m.get("items", []) if i["in_deathmatch"]])
-    attractors = sorted({graph.nearest(x, y) for x, y in pts} - {None})
-    count = np.zeros(len(graph.nodes))
-    for a in attractors:
+    near = graph.thing_node
+    starts = sorted({near(s["x"], s["y"]) for s in m["deathmatch_starts"]} - {None})
+    goals = sorted(({near(w["x"], w["y"]) for w in m["weapons"] if w["in_deathmatch"]}
+                    | {near(i["x"], i["y"]) for i in m.get("items", []) if i["in_deathmatch"] and i["name"] in itemfacts.TIMED})
+                   - {None})
+    out = []
+    for a in starts:
         _, prev = graph.dijkstra(a)
-        for b in attractors:
-            if b <= a or b not in prev:
+        for b in goals:
+            if b == a or b not in prev:
                 continue
-            u = b
+            path, u = [], b
             while u is not None:
-                count[u] += 1
+                path.append(u)
                 u = prev[u]
-    return count / max(1.0, count.max())
+            out.append(path[::-1])
+    return out
 
 
 def _watch(rays, weights=None, half=6):
@@ -108,15 +118,27 @@ def _watch(rays, weights=None, half=6):
     return best_i * 360.0 / RAYS
 
 
-def _spread(cands):
+def _spread(cands, top=TOP):
     """Best first, dropping candidates closer than MIN_SPACING to a better one."""
     out = []
     for c in sorted(cands, key=lambda c: -c["score"]):
         if all(math.hypot(c["x"] - o["x"], c["y"] - o["y"]) >= MIN_SPACING for o in out):
             out.append(c)
-        if len(out) == TOP:
+        if len(out) == top:
             break
     return out
+
+
+def _spread_by_region(cands, region_id):
+    """TOP candidates in the largest nav region and TOP_SIDE in each other one, best first overall."""
+    by = {}
+    for c in cands:
+        by.setdefault(region_id[c["id"]], []).append(c)
+    out = []
+    for r, cs in by.items():
+        if r >= 0:
+            out += _spread(cs, TOP if r == 0 else TOP_SIDE)
+    return sorted(out, key=lambda c: -c["score"])
 
 
 def compute(map_data, graph, requests):
@@ -127,13 +149,23 @@ def compute(map_data, graph, requests):
                and (y - graph.geo.bounds["min_y"] - nav.GRID // 2) % CANDIDATE_GRID == 0
                and graph.clearance(x, y) >= 24]
     rays = {i: sight.rays(graph.nodes[i][0], graph.nodes[i][1], graph.nodes[i][2]) for i in lattice}
-    tr = traffic(graph) if any(m == "sightlines_min_near_traffic" for m, _, _ in requests) else None
+    paths = routes(graph) if any(m == "sightlines_min_near_traffic" for m, _, _ in requests) else []
+    on_route = {}  # node -> the routes through it
+    for k, path in enumerate(paths):
+        for n in path:
+            on_route.setdefault(n, set()).add(k)
+    busiest = max((len(r) for r in on_route.values()), default=1)
+    route_nodes = np.array(sorted(on_route), dtype=int)
+    route_xy = np.array([graph.nodes[n][:2] for n in route_nodes], float).reshape(-1, 2)
     out = {"params": [], "candidates": {}}
     for mode, rmin, rmax in requests:
         if mode in out["candidates"]:
             continue
-        out["params"].append({"mode": mode, "range": [rmin, rmax], "rays": RAYS, "ray_max": RAY_MAX,
-                              "lattice": CANDIDATE_GRID, "candidates_scored": len(lattice)})
+        param = {"mode": mode, "range": [rmin, rmax], "rays": RAYS, "ray_max": RAY_MAX,
+                 "lattice": CANDIDATE_GRID, "candidates_scored": len(lattice)}
+        if mode == "sightlines_min_near_traffic":
+            param.update({"traffic": "routes", "routes": len(paths), "route_radius": ROUTE_RADIUS})
+        out["params"].append(param)
         cands = []
         for i in lattice:
             x, y, s = graph.nodes[i]
@@ -144,24 +176,24 @@ def compute(map_data, graph, requests):
             else:
                 exposure = float(np.minimum(r, 1024).mean() / 1024)
                 weights = np.zeros(RAYS)
-                for j, (tx, ty, _) in enumerate(graph.nodes):
-                    if tr[j] <= 0:
-                        continue
-                    d = math.hypot(tx - x, ty - y)
-                    if not rmin <= d <= rmax:
-                        continue
+                covered = set()
+                d = np.hypot(route_xy[:, 0] - x, route_xy[:, 1] - y) if len(route_xy) else np.zeros(0)
+                for j in np.nonzero(d <= ROUTE_RADIUS)[0]:
+                    n = int(route_nodes[j])
+                    tx, ty, _ = graph.nodes[n]
                     k = int(round(math.degrees(math.atan2(ty - y, tx - x)) / (360.0 / RAYS))) % RAYS
-                    if r[k] >= d - 16:
-                        weights[k] += tr[j]
-                covered = float(weights.sum())
-                score = math.sqrt(covered) * (1 - exposure) ** 2 * math.sqrt(max(0.0, 1 - tr[i]))
+                    if n == i or r[k] >= d[j] - 16:
+                        weights[k] += len(on_route[n])
+                        covered |= on_route[n]
+                own = len(on_route.get(i, ())) / busiest
+                score = math.sqrt(len(covered)) * (1 - exposure) ** 2 * math.sqrt(max(0.0, 1 - own))
                 watch = _watch(r, weights)
             cands.append({"id": i, "x": x, "y": y, "sector": s, "floor": graph.floor[s],
                           "score": round(score, 5), "watch_angle": round(watch, 1)})
         top = max((c["score"] for c in cands), default=1.0) or 1.0
         for c in cands:
             c["score"] = round(c["score"] / top, 4)
-        out["candidates"][mode] = _spread(cands)
+        out["candidates"][mode] = _spread_by_region(cands, graph.region_id)
     return out
 
 

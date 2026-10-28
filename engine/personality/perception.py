@@ -11,7 +11,8 @@ label's object id, stable for an actor's lifetime in this process; its slot is f
 when the table answers, two tics after the label first appears.
 
 Map items and geometry come from map.json: map knowledge is fair. Objects info is never
-used for enemy positions.
+used for enemy positions. Item labels (pickups the bot can see) are read by the controller
+for bots that time items (characters/README.md `item_timing`).
 """
 
 import math
@@ -26,12 +27,13 @@ FORGET_TICS = 10 * 35
 
 
 class Contact:
-    __slots__ = ("key", "slot", "first_seen", "last_seen", "x", "y", "z", "vx", "vy", "visible", "burned")
+    __slots__ = ("key", "slot", "first_seen", "last_seen", "x", "y", "z", "vx", "vy", "angle", "visible", "burned")
 
     def __init__(self, key, slot, t):
         self.key, self.slot = key, slot
         self.first_seen = self.last_seen = t
         self.x = self.y = self.z = self.vx = self.vy = 0.0
+        self.angle = None  # facing when last seen (degrees, Doom convention): a player sees where others look
         self.visible = False
         self.burned = False  # an ambusher let this sighting go and will not re-open it
 
@@ -67,6 +69,7 @@ class Perception:
             c.last_seen, c.visible = t, True
             c.x, c.y, c.z = x, y, lab.object_position_z
             c.vx, c.vy = lab.object_velocity_x, lab.object_velocity_y
+            c.angle = lab.object_angle
             self.last_any_contact = t
         gone = []
         for k, c in list(self.contacts.items()):

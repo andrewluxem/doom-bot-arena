@@ -4,6 +4,11 @@ name: "Null"
 archetype: ambusher
 colorset: 2
 
+# Dial re-rolls (ZED's mechanic): none.
+reroll_interval_s: null
+reroll_seed_from_match: false
+ranges: null
+
 perception:
   reaction_time_ms: 100
   aim_accuracy: 0.85
@@ -14,6 +19,8 @@ temperament:
   self_preservation: 0.4
   engage_health_min: 0
   preferred_range: [200, 600]   # outside rocket self-splash
+  retreat_distance: null
+  flank: false
 
 behavior_weights:
   HUNTING: 0.1
@@ -49,8 +56,8 @@ signature:
   - metric: distance_traveled_rank   # 1 = least of the 8
     op: "<="
     value: 2
-    gate: true
+    gate: false   # a rank cannot separate from an all-placeholder baseline (docs/SIGNATURES.md)
   - metric: kills_from_hold_share   # kills after 70+ tics within 16 units of the kill spot
     op: ">="
     value: 0.5
-    gate: false   # candidate: placeholders fail it, but so does NUL (docs/SIGNATURES.md)
+    gate: true   # separates on both 2B maps; placeholders 0/67

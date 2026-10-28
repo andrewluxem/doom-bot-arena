@@ -38,7 +38,40 @@ Applied to the 2A evaluation (MAP01, seeds 101–105, 25 placeholder bot-matches
 | NUL | `frags_within_1500ms_of_visibility_share >= 0.5` | descriptive | 5/5 | 21/25 (84%) |
 | NUL | `kills_from_hold_share >= 0.5` | descriptive | 0/5 | 0/25 |
 
-**Open: milestone 2B replaces the five placeholders with personalities**, so its evaluation has no placeholder bot-matches to separate from. It will need another baseline.
+On 2026-10-28, at the start of milestone 2B, VEX's threshold moved to `median_kill_distance < 140` (data change only). At `< 160` it cleared the rule by one placeholder bot-match.
+
+### Milestone 2B: a placeholder baseline per map
+
+All eight bots are personalities in milestone 2B, so the placeholders come from separate matches. `make docker-baseline` runs five five-minute matches per map with all eight slots as placeholders, at seeds 201 to 205. The baseline bot-matches for a map are every slot of every baseline match on that map: 40 per map.
+- **Gating on a map.** A personality's metric gates on a map if it fails for at least 80% of that map's baseline bot-matches, against the personality's own threshold. A baseline bot-match where the metric is `n/a` is left out.
+- **Sheet parameters.** Metrics that read the sheet (`engagement_distance_in_band_share` reads `preferred_range`, `retreat_on_close_share` reads `retreat_distance`) are computed for baseline bots with the personality's sheet. In 2A each placeholder's own sheet was used, which made no difference for the 2A metrics.
+- **Acceptance.** A bot is accepted if at least one of its metrics gates on every map evaluated and passes in at least 80% of its matches (8 of 10 on MAP10 and E1M5).
+- **Rank metrics cannot gate against an all-placeholder baseline.** In every match at least two of the eight bots hold rank 1 or 2 (ties share the better rank), so at least 25% of baseline bot-matches pass a `<= 2`. At most 75% fail, under the 80% the rule needs. This affects `distance_traveled_rank` (NUL's 2A gate) and `armor_pickups_rank` (PYR).
+- `tools/signatures.py --baseline <bundles> <bundles>` applies this per map. It prints every metric for all eight bots against the baseline, and the pairs of bots that share a top behavior.
+
+Applied to the 2B evaluation: five matches per map at seeds 301–305, against the baseline at seeds 201–205 (E1M5 seed 206 in place of 202). Sheets carry the resulting `gate` flags.
+
+| bot | metric | E1M5: baseline pass | MAP10: baseline pass | role | met (E1M5 + MAP10) |
+|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 140` | 0/38 | 1/29 | gate | 3 + 4 = 7/10 |
+| VEX | `closing_share > 0.6` | 37/39 | 30/37 | descriptive | 5 + 3 |
+| KRN | `item_timing_hit_rate > 0.5` | 0/9 | 1/9 | gate | 0 + 1 = 1/10 (n/a in all five E1M5 matches) |
+| KRN | `engagements_started_below_50hp_share < 0.1` | 12/39 | 23/37 | descriptive | 0 + 3 |
+| NUL | `frags_within_1500ms_of_visibility_share >= 0.5` | 29/38 | 21/29 | descriptive | 3 + 1 |
+| NUL | `distance_traveled_rank <= 2` | 10/40 | 10/40 | descriptive (rank) | 5 + 4 |
+| NUL | `kills_from_hold_share >= 0.5` | 0/38 | 0/29 | gate | 3 + 0 = 3/10 |
+| ASH | `melee_damage_share == 1.0` | 0/39 | 0/35 | gate | 5 + 5 = 10/10 |
+| ASH | `median_engagement_distance < 96` | 0/39 | 0/36 | gate | 0 + 0 = 0/10 |
+| ORB | `engagement_distance_in_band_share > 0.6` | 0/39 | 5/37 | gate | 0 + 0 = 0/10 |
+| ORB | `retreat_on_close_share > 0.7` | 0/39 | 0/31 | gate | 0 + 0 = 0/10 |
+| HEX | `stationary_share > 0.7` | 0/40 | 0/40 | gate | 0 + 4 = 4/10 |
+| HEX | `median_first_sight_engagement_distance > 500` | 36/39 | 29/37 | descriptive | 5 + 3 |
+| PYR | `approach_outside_view_cone_share > 0.5` | 34/39 | 18/32 | descriptive | 1 + 1 |
+| PYR | `armor_pickups_rank <= 2` | 11/40 | 10/40 | descriptive (rank) | 4 + 1 |
+| ZED | `behavior_switches_per_minute > 6` | 25/40 | 5/40 | descriptive (MAP10 only) | 5 + 5 |
+| ZED | `chainsaw_damage_share > 0.4` | 0/39 | 0/35 | gate | 0 + 0 = 0/10 |
+
+Only ASH meets a gating metric in 8 of 10 matches, and that metric holds by construction: ASH may hold only the fist and chainsaw, and no placeholder ever melees. PYR has no metric that separates on either map. `approach_outside_view_cone_share` is lower for every personality (0.23 to 0.50 by map median) than for placeholders (0.59 to 0.69): placeholders' targets wander and rarely face them, so a placeholder baseline does not suit a metric measured against the target's facing.
 
 ## Common terms
 
@@ -65,7 +98,7 @@ ASH `< 96`.
 ### median_kill_distance
 Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's kills. `n/a` with no kills. Where a rusher fights, not where it first sees someone.
 
-VEX `< 160`, gating.
+VEX `< 140`, gating (`< 160` until milestone 2B).
 
 ### closing_share
 Over the bot's steps whose row at `t` has `behavior: IN_COMBAT` and the same non-null `target_slot` as the row at `t − 1`, with the target alive at both tics: the share where the distance to the target at `t` is smaller than at `t − 1`. Either player's movement counts. `n/a` with no such steps.

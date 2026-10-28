@@ -18,6 +18,8 @@ temperament:
   self_preservation: 0.2
   engage_health_min: 0
   preferred_range: [0, 400]
+  retreat_distance: null
+  flank: false
 
 behavior_weights:
   HUNTING: 0.8
@@ -50,6 +52,8 @@ signature:
   - metric: behavior_switches_per_minute
     op: ">"
     value: 6
+    gate: false   # separates on MAP10 only (E1M5 baseline: 62% pass)
   - metric: chainsaw_damage_share
     op: ">"
     value: 0.4
+    gate: true

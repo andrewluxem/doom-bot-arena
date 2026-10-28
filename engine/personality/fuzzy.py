@@ -30,6 +30,9 @@ AMMO = {
     "plasma_rifle": [(0, 0.0), (1, 0.4), (40, 1.0)],
     "bfg": [(0, 0.0), (39, 0.0), (40, 1.0)],
 }
+# Berserk multiplies fist damage by 10 (2-20 becomes 20-200 a punch), which makes the fist the
+# strongest melee weapon while it lasts: its fitness is scaled by this.
+BERSERK_FIST = 3.0
 # Projectile speeds (map units per tic) for leading the aim; hitscan weapons are absent.
 PROJECTILE_SPEED = {"rocket_launcher": 20.0, "plasma_rifle": 25.0, "bfg": 25.0}
 # Extra fire tolerance (degrees) for spread weapons: a pellet cone forgives some aim error.
@@ -46,17 +49,24 @@ def interp(points, x):
     return points[-1][1]
 
 
-def fitness(name, distance, ammo):
+def fitness(name, distance, ammo, berserk=False):
     f = interp(RANGE[name], distance)
     if name in AMMO:
         f *= interp(AMMO[name], 0 if ammo is None else (1e9 if math.isinf(ammo) else ammo))
+    if berserk and name == "fist":
+        f *= BERSERK_FIST
     return f
 
 
-def choose(candidates, weights, distance, ammo_of, current=None, hysteresis=1.15):
+def in_reach(name, distance):
+    """A weapon is fired only where it can do something: melee weapons within their reach."""
+    return interp(RANGE[name], distance) > 0
+
+
+def choose(candidates, weights, distance, ammo_of, current=None, hysteresis=1.15, berserk=False):
     """Best weapon by sheet weight x fitness. The held weapon wins ties within `hysteresis`,
     because a switch costs about half a second. Returns (name or None, {name: score})."""
-    scores = {w: float(weights.get(w, 0.0)) * fitness(w, distance, ammo_of(w)) for w in candidates}
+    scores = {w: float(weights.get(w, 0.0)) * fitness(w, distance, ammo_of(w), berserk) for w in candidates}
     best = max(scores, key=scores.get, default=None)
     if best is None or scores[best] <= 0:
         return None, scores

@@ -21,6 +21,9 @@ from engine.geometry import MapGeometry  # noqa: E402
 
 EVENT_TYPES = ("frag", "telefrag", "suicide", "environmental_death", "respawn")
 TARGET_MEMORY_TICS = 35  # a bot may keep a target it lost sight of; one killed out of view stays up to 1 s
+# The engine places a player through the map's BSP, whose splits can sit a few units off the sector
+# polygons: freedoom2 MAP10 reports sector 35 up to 15.6 units inside its neighbour 218.
+BSP_TOLERANCE = 16.0
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -155,6 +158,22 @@ def check_rows(rows, n_tics, m=None, map_data=None):
         p += check_rows_v2(rows, m, map_data)
     if version >= 3 and not p:
         p += check_rows_v3(rows)
+    if version >= 4 and not p:
+        p += check_rows_v4(rows, n_tics)
+    return p
+
+
+def check_rows_v4(rows, n_tics):
+    """attack (section 5): a bool, the ATTACK input sent for the next tic; never on a dead row or the last tic."""
+    p = []
+    for r in rows:
+        a = r["attack"]
+        if not isinstance(a, bool):
+            p.append(f"tic {r['tic']} slot {r['slot']}: attack {a!r} is not a bool")
+        elif a and not r["alive"]:
+            p.append(f"tic {r['tic']} slot {r['slot']}: attack on a dead row")
+        elif a and r["tic"] == n_tics - 1:
+            p.append(f"tic {r['tic']} slot {r['slot']}: attack on the last tic, which sends no action")
     return p
 
 
@@ -187,7 +206,7 @@ def check_rows_v2(rows, m, map_data):
     alive = {(r["tic"], r["slot"]): r["alive"] for r in rows}
     geo = MapGeometry(map_data)
     n_sectors = len(map_data["sectors"])
-    checked = boundary = 0
+    checked = boundary = bsp = 0
     for r in rows:
         where = f"tic {r['tic']} slot {r['slot']}"
         w = r["weapon_name"]
@@ -211,12 +230,16 @@ def check_rows_v2(rows, m, map_data):
             p.append(f"{where}: sector {sec!r}")
             continue
         checked += 1
-        if sec not in geo.sectors_at(r["x"], r["y"]):
+        found = geo.sectors_at(r["x"], r["y"])
+        if sec not in found:
             if geo.near_sector_boundary(r["x"], r["y"]):
                 boundary += 1
+            elif any(geo.near_shared_line(r["x"], r["y"], sec, f, BSP_TOLERANCE) for f in found):
+                bsp += 1
             else:
-                p.append(f"{where}: sector {sec} but ({r['x']}, {r['y']}) lies in {geo.sectors_at(r['x'], r['y'])}")
-    print(f"      sector cross-check: {checked} rows, {boundary} disagreements on a sector boundary (allowed)")
+                p.append(f"{where}: sector {sec} but ({r['x']}, {r['y']}) lies in {found}")
+    print(f"      sector cross-check: {checked} rows, {boundary} disagreements on a sector boundary, "
+          f"{bsp} within {BSP_TOLERANCE:.0f} units of a line the two sectors share (both allowed)")
     return p
 
 

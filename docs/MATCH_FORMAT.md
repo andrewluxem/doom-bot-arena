@@ -1,6 +1,6 @@
 # Match bundle format
 
-**schema_version 3.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
+**schema_version 4.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
 
 ```
 bundles/<id>/
@@ -12,7 +12,7 @@ bundles/<id>/
   pov/slot1.mp4 … pov/slot8.mp4
 ```
 
-Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. Schema 3 adds the damage counters `hitcount`, `damagecount` and `damage_taken` to every row. The validator still accepts schema 1 and 2 bundles, such as the viewer's samples.
+Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. Schema 3 adds the damage counters `hitcount`, `damagecount` and `damage_taken` to every row. Schema 4 (milestone 2B) adds `attack`, the bot's own ATTACK input. The validator still accepts schema 1 to 3 bundles, such as the viewer's samples.
 
 `id` = `<UTC yyyymmddThhmmssZ>-<map>-s<seed>`, e.g. `20261028T041144Z-MAP01-s1234`.
 
@@ -195,6 +195,7 @@ NUL has just picked up the rocket launcher and selected it; the engine still hol
 | `hitcount` | `HITCOUNT` | schema 3. Hits this player has landed on other players and on barrels since the match began |
 | `damagecount` | `DAMAGECOUNT` | schema 3. Damage this player has dealt to other players and to barrels since the match began |
 | `damage_taken` | `DAMAGE_TAKEN` | schema 3. Damage this player has taken since the match began, from anyone: other players, its own splash, the world |
+| `attack` | controller | schema 4. `true` if the process sent ATTACK in the action chosen from this state, which the engine applies during tic `t + 1` (section 3). Always `false` on a dead row and on the last tic, which sends no action. It is the bot's own input, not a confirmed shot: the engine fires only if the weapon is ready and has ammo |
 
 Each process writes only its own slot's rows.
 
@@ -231,7 +232,7 @@ Each process writes only its own slot's rows.
 | `respawn` | slot | `null` | `null` | `tics.jsonl`, `alive` false→true; `source` is `"tics.jsonl:alive false->true"` |
 
 **Deferred, not captured in schema 1:**
-- **Shots:** an `ATTACK` input is not a confirmed shot.
+- **Shots:** an `ATTACK` input is not a confirmed shot. Schema 4 records the input per tic (`tics.jsonl` `attack`), not the shot.
 - **Hits:** `HITCOUNT`/`DAMAGECOUNT` are counters with no target.
 - **Pickups:** pickup messages ("Got the minigun!") appear only in the picking player's own notifications buffer. That is a candidate source, not validated.
 
@@ -255,6 +256,11 @@ Parsing:
   - Unknown lines are logged as warnings in `runner.log` and counted in `match.json.notifications.unknown_lines`. They never become events.
 - **Rejected `OBIT` lines.** A line with a wrong field count, an unknown key, or a name not in the match is rejected with a warning. So is a key/killer combination that cannot be attributed (`OB_VOODOO`, `OB_FRIENDLY*`, or a self-kill key with a different killer).
 - **Agreement across processes.** All eight processes must log identical `OBIT` lines at identical tics. Events are built from that agreed list.
+- **Host player-name fault (found in milestone 2B).** In some matches the hosting process (slot 1) prints one player under another player's name in every obituary that names it, for the whole match. The seven clients print the right name.
+  - Seen on E1M5 (seed 202, twice), MAP10 (seed 204), MAP01 (seed 104 with the 2A roster) and one MAP10 test match: five of about thirty captures on 2026-10-28.
+  - Examples: Orbit printed as Hex, Null as Zed, Ash as Hex, Ash as Pyre. The host prints no rename message.
+  - The cause is not known. It appeared once several matches shared the CPU and once with only two. 1A and 2A, run one at a time, never showed it.
+  - The agreement check and the telemetry reconciliation reject every such capture, so no bundle carries a wrong name. The runner targets run a failed capture once more.
 
 ### 6.2 Why the override (gate record)
 
@@ -293,7 +299,7 @@ The IWAD rule from section 1 applies: same file as the run, sha256 recorded in b
 Spot candidates for the stationary styles and the spots bots chose (`engine/personality/spots.py`).
 
 ```jsonc
-{"spots_version": 1, "map": "MAP01", "iwad_sha256": "a8772e08…",
+{"spots_version": 3, "map": "MAP01", "iwad_sha256": "a8772e08…",
  "params": [{"mode": "sightlines_max", "range": [500, 1500], "rays": 72, "ray_max": 2048.0, "lattice": 64, "candidates_scored": 584},
             {"mode": "sightlines_min_near_traffic", "range": [200, 600], "rays": 72, "ray_max": 2048.0, "lattice": 64, "candidates_scored": 584}],
  "candidates": {"sightlines_max": [{"id": 1309, "x": 1112.0, "y": -312.0, "sector": 165, "floor": -64, "score": 1.0, "watch_angle": 295.0}, "…"],
@@ -302,9 +308,14 @@ Spot candidates for the stationary styles and the spots bots chose (`engine/pers
             {"slot": 6, "code": "HEX", "mode": "sightlines_max", "spot": 1452, "x": 1176.0, "y": 1096.0, "angle": 185.0, "from_tic": 71, "to_tic": 2275}]}
 ```
 
-- Candidates are nav-graph nodes on a 64-unit lattice. Sight is 72 rays from eye height against `map.json` linedefs: a one-sided line, a closed door, or a two-sided line whose far floor is above (or ceiling below) eye height stops a ray. `score` is normalised to 1 for the best candidate; at most 40 are kept per mode, no two closer than 128 units.
+- Candidates are nav-graph nodes on a 64-unit lattice. Sight is 72 rays from eye height against `map.json` linedefs: a one-sided line, a closed door, or a two-sided line whose far floor is above (or ceiling below) eye height stops a ray. `score` is normalised to 1 for the best candidate. Per mode, at most 40 are kept in the largest nav region and 8 in each smaller one (`spots_version` 3), no two closer than 128 units.
   - `sightlines_max`: mean ray length clipped at the far end of the bot's `preferred_range`.
-  - `sightlines_min_near_traffic`: `sqrt(covered traffic) × (1 − exposure)² × sqrt(1 − own traffic)`. Traffic counts how often a node lies on the shortest path between two of the deathmatch starts, weapons and items; covered traffic is the traffic visible from the spot inside the bot's `preferred_range`; exposure is mean ray length clipped at 1024.
+  - `sightlines_min_near_traffic` (`spots_version` 2 on): `sqrt(covered routes) × (1 − exposure)² × sqrt(1 − own traffic)`.
+    - Routes are the nav shortest paths from every deathmatch start to every weapon and timed item; their count is in `params` (`routes`, `route_radius`).
+    - A route is covered when one of its nodes lies within 256 units of the spot and in its sight.
+    - Own traffic is the number of routes through the spot's node, over the busiest node's.
+    - Exposure is mean ray length clipped at 1024.
+    - Version 1 instead counted shortest paths between every pair of starts, weapons and items, seen inside the bot's `preferred_range`.
 - `chosen` lists every spot a bot picked, from the tic it picked it to the tic it left it (`to_tic` is the last tic, inclusive). `angle` is the candidate's `watch_angle`.
 - Tables are cached by IWAD sha256, map, nav-graph version and parameters in `<out>/.cache/`.
 
@@ -326,9 +337,12 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
 - **Schema 2 fields.**
   - `weapon_name` is a weapon name or `null`, and for a bot with `weapons_resolved` one of those.
   - `target_slot` is `null` or another slot, only on alive rows, and that slot was alive at some tic in the last 35.
-  - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point, except within 1.5 units of a sector boundary (the validator prints how many such rows it allowed).
+  - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point. Two exceptions are allowed, and the validator prints how many rows each covers:
+    - the point lies within 1.5 units of a sector boundary;
+    - the recorded sector and the one containing the point share a line within 16 units of it. The engine places a player through the map's BSP, whose splits can sit off the polygons. Freedoom2 MAP10 reports sector 35 up to 15.6 units inside its neighbour 218 (3 positions in the 2B baseline).
   - The scoreboard is off for every slot, every bot has a `controller` and `weapons_resolved`, and `spots.json` candidates and chosen spots are well formed.
 - **Schema 3 fields.** The damage counters are non-negative integers that never fall. Dealt and taken are not checked against each other: barrel damage is dealt and never taken, and own splash is taken and never dealt (section 5).
+- **Schema 4 field.** `attack` is a bool, `false` on every dead row and on the last tic.
 - **Events.** Every death event's `source` re-parses to the same event. Event counts match.
 - **Pairing.**
   - Every `alive` true→false in a slot's rows has exactly one death event for that slot at that tic.
