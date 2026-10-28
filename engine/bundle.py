@@ -6,7 +6,8 @@ import os
 from engine import obituaries, roster
 
 SCHEMA_VERSION = 1
-SCORE_RULE = "displayed_frags = engine FRAGCOUNT - credited telefrags; displayed_deaths = deaths after tic 0"
+SCORE_RULE = ("displayed columns count events at tic >= frame0_tic; displayed_frags = kills - suicides; "
+              "displayed_deaths = deaths; frags_raw and deaths_raw are engine counters at the last tic")
 
 
 def read_jsonl(path):
@@ -18,6 +19,30 @@ def write_jsonl(path, items):
     with open(path, "w") as f:
         for it in items:
             f.write(json.dumps(it, separators=(",", ":")) + "\n")
+
+
+# ------------------------------------------------------------------ pre-roll
+def respawn_tic(death_tic, respawn_delay_s, ticrate):
+    """A death at tic d respawns at d + ticrate * delay + 1 (checked by the controlled bench)."""
+    return death_tic + ticrate * respawn_delay_s + 1
+
+
+def frame0_tic(respawn_delay_s, ticrate):
+    """First displayed tic: the tic-0 deaths have respawned, plus a margin of the respawn delay + 1 s."""
+    return respawn_tic(0, respawn_delay_s, ticrate) + ticrate * respawn_delay_s + ticrate
+
+
+def preroll_problems(rows, respawn_delay_s, ticrate):
+    """Every slot dead at tic 0 must be alive again by the respawn tic that frame0_tic is counted from."""
+    by = respawn_tic(0, respawn_delay_s, ticrate)
+    dead_at_0, first_alive = set(), {}
+    for r in rows:
+        if r["tic"] == 0 and not r["alive"]:
+            dead_at_0.add(r["slot"])
+        if r["alive"]:
+            first_alive.setdefault(r["slot"], r["tic"])
+    return [f"slot {s} dead at tic 0 first alive at tic {first_alive.get(s)}, expected by tic {by}"
+            for s in sorted(dead_at_0) if first_alive.get(s, by + 1) > by]
 
 
 # ------------------------------------------------------------------ capture -> bundle
@@ -127,24 +152,25 @@ def sort_events(events):
 
 
 # ------------------------------------------------------------------ scoring and reconciliation
-def score_rows(events, engine):
+def score_rows(events, engine, frame0):
+    """Displayed columns cover the displayed match only (tic >= frame0); pre-roll events stay in events.jsonl."""
     rows = []
+    shown = [x for x in events if x["type"] != "respawn" and x["tic"] >= frame0]
     for e in engine:
         slot = e["slot"]
-        mine = [x for x in events if x["type"] != "respawn"]
-        telefrags = sum(1 for x in mine if x["type"] == "telefrag" and x["actor"] == slot and x["credited"])
-        deaths = [x for x in mine if x["target"] == slot]
+        kills = sum(1 for x in shown if x["type"] == "frag" and x["actor"] == slot and x["credited"])
+        suicides = sum(1 for x in shown if x["type"] == "suicide" and x["target"] == slot and x["credited"])
+        deaths = [x for x in shown if x["target"] == slot]
         rows.append({
             "slot": slot,
-            "displayed_frags": e["fragcount"] - telefrags,
-            "displayed_deaths": sum(1 for x in deaths if x["tic"] > 0),
+            "displayed_frags": kills - suicides,
+            "displayed_deaths": len(deaths),
             "frags_raw": e["fragcount"],
             "deaths_raw": e["deathcount"],
-            "kills": sum(1 for x in mine if x["type"] == "frag" and x["actor"] == slot and x["credited"]),
-            "telefrags": telefrags,
-            "suicides": sum(1 for x in mine if x["type"] == "suicide" and x["target"] == slot),
+            "kills": kills,
+            "telefrags": sum(1 for x in shown if x["type"] == "telefrag" and x["actor"] == slot and x["credited"]),
+            "suicides": suicides,
             "environmental_deaths": sum(1 for x in deaths if x["type"] == "environmental_death"),
-            "tic0_deaths": sum(1 for x in deaths if x["tic"] == 0),
         })
     return rows
 

@@ -37,7 +37,7 @@ def _tail(path, n=8):
 
 
 def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_delay, workdir,
-              controller="engine.bots:PlaceholderBot", controller_kwargs=None, video=True,
+              controller="engine.bots:PlaceholderBot", controller_kwargs=None, video=True, video_from_tic=0,
               cheats=False, spawnfarthest=True, render_messages=None, dump_frames_every=None,
               startup_timeout=120.0, progress_timeout=60.0, barrier_timeout=60.0, log=print):
     """Run one match into workdir/slot<n>/. Returns run facts; raises MatchFailed after killing everything."""
@@ -67,6 +67,7 @@ def run_match(*, sheets, iwad, map_name, seed, duration_tics, port, respawn_dela
             "wads": [wad], "render_messages": render_messages.get(slot, game.RENDER["messages"]),
             "controller": controller, "controller_kwargs": controller_kwargs.get(slot, {}),
             "sheet": sheet, "outdir": os.path.join(workdir, f"slot{slot}"), "video": video,
+            "video_from_tic": video_from_tic,
             "dump_frames_every": dump_frames_every.get(slot), "barrier_timeout": barrier_timeout,
         }
 

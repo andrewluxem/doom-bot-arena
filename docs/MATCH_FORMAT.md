@@ -11,7 +11,7 @@ bundles/<id>/
   pov/slot1.mp4 … pov/slot8.mp4
 ```
 
-`id` = `<UTC yyyymmddThhmmssZ>-<map>-s<seed>`, e.g. `20261028T034723Z-MAP01-s1234`.
+`id` = `<UTC yyyymmddThhmmssZ>-<map>-s<seed>`, e.g. `20261028T041144Z-MAP01-s1234`.
 
 The runner writes the bundle only if every process ran to the end and every check in section 9 passed. Capture output stays in `bundles/.capture/<id>/` either way: per-slot logs, raw notification lines, `runner.log` with warnings.
 
@@ -54,17 +54,31 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
   - `make bench-spawn` ran 10 seeds with `sv_spawnfarthest` on from the start, and the same 10 with it off at spawn and switched on by the host at tic 1.
   - Both modes gave 23 tic-0 telefrags (1–3 per run), identical per seed.
   - The setting stays on from the start, since it governs respawns.
+  - These deaths fall in the pre-roll (section 3), before the displayed match starts.
 
 ## 3. Time contract
 
 - **Lockstep.** On every loop iteration, each process calls `make_action(action, 1)` once, then waits at a cross-process barrier. Without the barrier, ZDoom's `TryRunTics` lets a lagging client run two gametics in one step: 46–346 skipped tics per client over 1400 steps in the 8-player probe. `match.json.sync` records `barrier: true` and the gap count, which must be 0. A process that sees a gap aborts the match.
 - **Row and frame semantics.** The `tics.jsonl` row and the MP4 frame for bundle tic `t` both come from the same `get_state()` call. They show the state after the engine has simulated tic `t`, before the action chosen from that state is applied. That action runs during tic `t + 1`. The obituary for a death at tic `t` appears in that same state.
 - **Origin.** Bundle tic = engine episode tic − 1, so every process's first observed state is tic 0. All processes must start at the same engine tic.
-- **frame0_tic.** MP4 frame `k` is bundle tic `frame0_tic + k`. Schema 1 only defines `frame0_tic = 0`. All eight videos cover tics `0 … N−1`.
-- **Duration.** `--duration-tics N` (default 10500 = 5 min) gives exactly N rows per slot and N frames per video. The last state is recorded and no further action is sent.
+- **Pre-roll and `frame0_tic`.** The displayed match starts at `frame0_tic`, once the level-start deaths have respawned, plus a margin:
+  - `frame0_tic = R + M`, where `R = 35·respawn_delay_s + 1` and `M = 35·respawn_delay_s + 35`.
+  - `R` is the tic at which a slot killed at tic 0 respawns, since a death at tic `d` respawns at `d + 35·delay + 1` (section 2). `M` is the respawn delay plus one second.
+  - With the default 2 s delay, `R = 71`, `M = 105` and `frame0_tic = 176`, which is 5.03 s of pre-roll.
+  - `frame0_tic` depends only on `respawn_delay_s`. The runner knows it before tic 0, and every bundle with the same delay has the same pre-roll.
+  - Every slot dead at tic 0 must be alive again by tic `R`. If one is not, no bundle is written.
+- **Match clock.** The displayed match clock reads 00:00 at `frame0_tic`: clock = `(tic − frame0_tic) / 35` s. Pre-roll tics come before 00:00.
+- **What the pre-roll keeps.**
+  - Pre-roll telemetry stays in the bundle: `tics.jsonl` rows and `events.jsonl` events start at tic 0.
+  - The POV videos start at `frame0_tic`, so MP4 frame `k` is bundle tic `frame0_tic + k`.
+  - Displayed score columns count only events at `tic ≥ frame0_tic` (section 4).
+- **Duration.** `--duration-tics N` (default 10500 = 5 min) is the displayed match: the clock runs from 00:00 to `N / 35` s.
+  - The capture runs `frame0_tic + N` tics.
+  - That gives `frame0_tic + N` rows per slot (tics `0 … frame0_tic + N − 1`) and `N` frames per video (tics `frame0_tic … frame0_tic + N − 1`).
+  - The last state is recorded and no further action is sent.
 - **Death.** Rows and frames keep coming. The row has `alive: false` and `behavior: DEAD`, and the frame is whatever the engine renders.
 - **Respawn.** The first row with `alive: true` after a death has `behavior: RESPAWNING`. It is detected from the slot's own `DEAD` flag.
-- **Dead at start.** A slot can be dead at tic 0 because of a level-start telefrag. Rows and frames are written as normal.
+- **Dead at start.** A slot can be dead at tic 0 because of a level-start telefrag. Its rows are written as normal, and it respawns at tic `R`, inside the pre-roll.
 - **Failure.** If a process returns no state, finishes early, sees a tic gap, or ffmpeg exits non-zero, the runner kills every slot's process group and exits 1. Each group holds the slot process, its ViZDoom engine and its ffmpeg. The startup timeout is 120 s, and the progress timeout is 60 s without the slowest slot advancing. No bundle is written. Frames are never skipped, duplicated or synthesized, and telemetry is never filled in.
 
 ## 4. match.json
@@ -72,26 +86,26 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
 ```jsonc
 {
   "schema_version": 1,
-  "id": "20261028T034723Z-MAP01-s1234",
-  "date": "2026-10-28T03:47:23Z",
+  "id": "20261028T041144Z-MAP01-s1234",
+  "date": "2026-10-28T04:11:44Z",
   "iwad": {"name": "freedoom2.wad", "sha256": "a8772e08…"},
   "map": "MAP01", "seed": 1234, "ticrate": 35, "skill": 3,
   "vizdoom_version": "1.3.2",
   "platform": {"os": "Linux-…-x86_64-with-glibc2.36", "python": "3.12.16", "ffmpeg": "ffmpeg version 5.1.9-0+deb12u1 …"},
-  "duration_tics": 2100, "frame0_tic": 0, "respawn_delay_s": 2,
+  "duration_tics": 2100, "frame0_tic": 176, "respawn_delay_s": 2,
   "controller": "engine.bots:PlaceholderBot",
   "bots": [{"slot": 1, "code": "VEX", "name": "Vex", "archetype": "rusher", "colorset": 0, "player_number": 0}],
   "weapons_present": ["chaingun", "chainsaw", "plasma_rifle", "rocket_launcher", "shotgun", "super_shotgun"],
-  "engine": [{"slot": 1, "player_number": 0, "fragcount": 2, "deathcount": 1}],
+  "engine": [{"slot": 1, "player_number": 0, "fragcount": 0, "deathcount": 1}],
   "score": {
-    "rule": "displayed_frags = engine FRAGCOUNT - credited telefrags; displayed_deaths = deaths after tic 0",
-    "rows": [{"slot": 1, "displayed_frags": 2, "displayed_deaths": 1, "frags_raw": 2, "deaths_raw": 1,
-              "kills": 2, "telefrags": 0, "suicides": 0, "environmental_deaths": 0, "tic0_deaths": 1}]
+    "rule": "displayed columns count events at tic >= frame0_tic; displayed_frags = kills - suicides; displayed_deaths = deaths; frags_raw and deaths_raw are engine counters at the last tic",
+    "rows": [{"slot": 1, "displayed_frags": 0, "displayed_deaths": 1, "frags_raw": 0, "deaths_raw": 1,
+              "kills": 0, "telefrags": 0, "suicides": 0, "environmental_deaths": 0}]
   },
-  "event_counts": {"frag": 8, "telefrag": 3, "suicide": 1, "environmental_death": 0, "respawn": 12},
+  "event_counts": {"frag": 14, "telefrag": 3, "suicide": 1, "environmental_death": 0, "respawn": 18},
   "obituary_wad": {"sha256": "74149d45…", "keys": 31, "format": "OBIT|<key>|<victim>|<killer>"},
-  "notifications": {"unknown_lines": 78, "unattributed_obituaries": 0},
-  "sync": {"barrier": true, "steps": 2100, "gaps": 0, "frag_vector_mismatches": 0},
+  "notifications": {"unknown_lines": 95, "unattributed_obituaries": 0},
+  "sync": {"barrier": true, "steps": 2276, "gaps": 0, "frag_vector_mismatches": 0},
   "render": {"hud": false, "crosshair": false, "weapon": true, "messages": false, "messages_per_slot": [false, false, false, false, false, false, false, false]},
   "pov": [{"slot": 1, "path": "pov/slot1.mp4", "sha256": "…"}],
   "host_args": ["-host 8", "…"], "client_args": ["-join 127.0.0.1", "…"]
@@ -102,7 +116,7 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
   - It must be constant per slot and distinct across slots.
   - It follows join order, not slot order, and differs between runs.
   - `PLAYER<n>_FRAGCOUNT` is indexed by `player_number + 1`.
-- **`engine`** holds the raw counters, copied untouched from tic N−1: `fragcount` (the slot's `FRAGCOUNT`) and `deathcount` (its `DEATHCOUNT`).
+- **`engine`** holds the raw counters, copied untouched from the last tic (`frame0_tic + duration_tics − 1`): `fragcount` (the slot's `FRAGCOUNT`) and `deathcount` (its `DEATHCOUNT`).
 - **How the engine moves FRAGCOUNT** (`AActor::Die`):
 
   | Event | Change |
@@ -114,15 +128,18 @@ The exact argument lists are recorded in `match.json.host_args` and `client_args
 
 - **Tic-0 deaths.**
   - `DEATHCOUNT` leaves them out: a slot telefragged at level start reads 0 while dead.
-  - Displayed deaths leave them out too.
-  - They are still recorded as events and counted in `tic0_deaths`.
+  - They fall in the pre-roll, so no displayed column counts them.
+  - They are still recorded as events.
 - **`score.rows` columns.**
-  - `telefrags`: credited telefrags only (tic > 0).
+  - **Displayed match only.** `displayed_frags`, `displayed_deaths`, `kills`, `telefrags`, `suicides` and `environmental_deaths` count events at `tic ≥ frame0_tic`. Pre-roll events stay in `events.jsonl` but are not in these columns.
   - `kills`: credited non-telefrag frags.
+  - `telefrags`: credited telefrags.
   - `suicides`: self-kills.
   - `environmental_deaths`: deaths with no source.
-  - `displayed_frags` = `frags_raw − telefrags`.
-  - `displayed_deaths` = deaths with `tic > 0`, which equals `deaths_raw`.
+  - `displayed_frags` = `kills − suicides`. Telefrags are not displayed frags. This equals the change in `FRAGCOUNT` over the displayed match, minus its telefrags.
+  - `displayed_deaths` = all deaths.
+  - `frags_raw` and `deaths_raw` are the engine `FRAGCOUNT` and `DEATHCOUNT` at the last tic. They include the pre-roll, so they can differ from the displayed columns. They are not displayed.
+- **`event_counts`** counts every event in `events.jsonl`, pre-roll included.
 
 ## 5. tics.jsonl
 
@@ -142,7 +159,7 @@ One line per `(tic, slot)`, sorted by `tic`, then `slot`:
 | `behavior` | controller | only the values in `characters/README.md`; `DEAD`/`RESPAWNING` set by the runner as in section 3 |
 | `utility_scores` | controller | `{BEHAVIOR: float}` or `null`. Milestone 1A placeholder bots always write `null` |
 
-Each process writes only its own slot's rows. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … N−1`.
+Each process writes only its own slot's rows. The merge rejects missing `(tic, slot)` rows, duplicates, slots outside 1–8, and per-slot tic ranges other than `0 … frame0_tic + duration_tics − 1`.
 
 ## 6. events.jsonl
 
@@ -219,7 +236,7 @@ The IWAD rule from section 1 applies: same file as the run, sha256 recorded in b
 
 ## 8. POV video
 
-`pov/slot<n>.mp4`: 320x240, 35 fps, H.264, `yuv420p`, one keyframe per second, with the sha256 recorded in `match.json.pov`. Raw `rgb24` frames are piped to ffmpeg:
+`pov/slot<n>.mp4`: 320x240, 35 fps, H.264, `yuv420p`, one keyframe per second, with the sha256 recorded in `match.json.pov`. Each video holds `duration_tics` frames, starting at `frame0_tic`. Pre-roll frames are never piped to ffmpeg. Raw `rgb24` frames are piped to ffmpeg:
 
 ```
 ffmpeg -f rawvideo -pix_fmt rgb24 -s 320x240 -r 35 -i - -an -c:v libx264 -preset veryfast -crf 23 \
@@ -230,8 +247,8 @@ ffmpeg -f rawvideo -pix_fmt rgb24 -s 320x240 -r 35 -i - -an -c:v libx264 -preset
 
 The runner applies these before writing the bundle (exit 4 and no bundle if any fails), and `engine/validate_bundle.py` re-derives them from the bundle files alone:
 
-- **Files.** Every file is present. `match.json` fields and types are valid. The IWAD sha256 matches `map.json`. The obituary WAD sha256 matches what `engine/obituaries.py` generates. `sync` shows the barrier with 0 gaps. Message rendering is off for every slot.
-- **Telemetry.** `tics.jsonl` is a complete `(tic, slot)` grid with no duplicates, and its values follow section 5. `DEAD`/`RESPAWNING` are consistent with `alive`. The behavior vocabulary matches `characters/README.md`.
+- **Files.** Every file is present. `match.json` fields and types are valid. `frame0_tic` follows the section 3 formula for `respawn_delay_s`, and `sync.steps` = `frame0_tic + duration_tics`. The IWAD sha256 matches `map.json`. The obituary WAD sha256 matches what `engine/obituaries.py` generates. `sync` shows the barrier with 0 gaps. Message rendering is off for every slot.
+- **Telemetry.** `tics.jsonl` is a complete `(tic, slot)` grid over tics `0 … frame0_tic + duration_tics − 1` with no duplicates, and its values follow section 5. `DEAD`/`RESPAWNING` are consistent with `alive`. The behavior vocabulary matches `characters/README.md`.
 - **Events.** Every death event's `source` re-parses to the same event. Event counts match.
 - **Pairing.**
   - Every `alive` true→false in a slot's rows has exactly one death event for that slot at that tic.
@@ -242,19 +259,26 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
   - For every slot, FRAGCOUNT = credited kills + credited telefrags − credited self-kills.
   - For every slot, DEATHCOUNT = deaths after tic 0.
   - Engine counters only verify attribution; they never create it.
+- **Pre-roll.** Every slot dead at tic 0 is alive again by tic `R`.
 - **Runner only.** All processes logged identical frag vectors at every tic.
-- **Scores.** Score rows equal the rule applied to events and engine counts.
-- **Videos.** Each passes ffprobe: `h264`, 320x240, `35/1`, `yuv420p`, decoded frame count = `duration_tics`, duration = `duration_tics / 35` s. Its sha256 matches `match.json.pov`.
+- **Scores.** Score rows equal the rule applied to the events at `tic ≥ frame0_tic` and the engine counts.
+- **Videos.** Each passes ffprobe: `h264`, 320x240, `35/1`, `yuv420p`, decoded frame count = `duration_tics` (the pre-roll is not in the video), duration = `duration_tics / 35` s. Its sha256 matches `match.json.pov`.
 
 ## 10. Commands
 
 | | Linux | Intel mac (pinned Docker image) |
 |---|---|---|
+| Parser unit tests | `make test` | `make test` (in `.venv`) |
 | Image | | `make image` |
 | Smoke and controlled benches | `make bench` | `make docker-bench` |
 | Spawn-telefrag experiment | `make bench-spawn` | |
 | One match | `make match TICS=2100 SEED=1234` | `make docker-match TICS=2100 SEED=1234` |
 | Validate | `make validate BUNDLE=bundles/<id>` | `make docker-validate BUNDLE=…` |
 
+- **Parser tests** (`tests/test_obituaries.py`) need `pytest` from `requirements-dev.txt`, not ViZDoom. They cover:
+  - all 31 keys, each with killer = victim and killer ≠ victim, against an expected table written out in the test;
+  - `OB_EXIT` and `OB_SUICIDE` as self-kills that cost the victim one frag;
+  - malformed `OBIT` lines;
+  - stock obituary text, which must be rejected and never guessed: the lines observed in section 6.2, and every stock English string of the installed engine and IWAD.
 - **Smoke bench:** 8 placeholder bots to tic 300. Frag vectors must agree across all processes at every tic.
 - **Controlled bench:** the staged weapon kill, teleporter telefrag, self-kill and barrel kill, plus the message-area check. It needs Freedoom 0.13's MAP01, because the teleporter coordinates are specific to it.

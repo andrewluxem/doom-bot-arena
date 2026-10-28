@@ -136,7 +136,7 @@ def _run(spec, barrier, heartbeat, ready, log, meta, out):
             meta["frame_shape"] = list(frame.shape)
             if tuple(frame.shape) != (game.HEIGHT, game.WIDTH, 3):
                 raise SlotFailure(f"screen buffer shape {frame.shape}, expected (240, 320, 3)")
-        if ff is not None:
+        if ff is not None and t >= spec["video_from_tic"]:  # pre-roll tics get rows, not frames
             try:
                 ff.stdin.write(frame.tobytes())
             except BrokenPipeError:

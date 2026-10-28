@@ -2,6 +2,9 @@
 
     python -m engine.runner --duration-tics 2100 --seed 1234
 
+--duration-tics is the displayed match. The capture runs frame0_tic pre-roll tics
+first (bundle.frame0_tic); they get telemetry rows but no video frames.
+
 Capture output (per-slot logs, raw notifications) goes to <out>/.capture/<id>/.
 The bundle is written to <out>/<id>/ only if every process finished and every
 check passed. Exit codes: 0 bundle written, 1 a process failed (all killed),
@@ -50,8 +53,11 @@ def preflight():
     return None
 
 
-def build(capture, n_tics, sheets):
-    """Checks and bundle data from a finished capture. Returns (data, problems, warnings)."""
+def build(capture, n_tics, sheets, respawn_delay=None):
+    """Checks and bundle data from a finished capture. Returns (data, problems, warnings).
+
+    n_tics counts every captured tic. With respawn_delay, the capture also has to satisfy the pre-roll.
+    """
     metas = capture["metas"]
     problems, numbers = bundle.slot_problems(metas, n_tics)
     rows_by_slot, notes_by_slot, fragvecs = bundle.read_capture(capture["workdir"])
@@ -75,6 +81,8 @@ def build(capture, n_tics, sheets):
             if vec != metas[s]["final"]["FRAGCOUNT"]:
                 problems.append(f"slot {s}: PLAYER{numbers[s] + 1}_FRAGCOUNT {vec} != own FRAGCOUNT")
     problems += bundle.reconcile(events, rows, engine)
+    if respawn_delay is not None:
+        problems += bundle.preroll_problems(rows, respawn_delay, game.TICRATE)
     data = {"rows": rows, "events": events, "engine": engine, "numbers": numbers,
             "mismatches": mismatches, "unknown": unknown, "obituary_lines": lines,
             "unattributed": len(lines) - len(deaths)}
@@ -85,7 +93,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Host one 8-bot ViZDoom deathmatch and write a match bundle.")
     p.add_argument("--iwad", help="IWAD path (default: freedoom2.wad shipped with ViZDoom)")
     p.add_argument("--map", default="MAP01")
-    p.add_argument("--duration-tics", type=int, default=10500, help="default 10500 = 5 minutes")
+    p.add_argument("--duration-tics", type=int, default=10500,
+                   help="displayed match, after the pre-roll; default 10500 = 5 minutes")
     p.add_argument("--seed", type=int, default=1234)
     p.add_argument("--port", type=int, default=5029)
     p.add_argument("--respawn-delay", type=int, default=2, help="viz_respawn_delay, seconds, server-wide")
@@ -117,18 +126,20 @@ def main(argv=None):
         print(msg, flush=True)
         log_file.write(msg + "\n")
 
-    log(f"match {match_id}: ViZDoom {game.version()}, {args.duration_tics} tics, seed {args.seed}")
+    frame0 = bundle.frame0_tic(args.respawn_delay, game.TICRATE)
+    total = frame0 + args.duration_tics
+    log(f"match {match_id}: ViZDoom {game.version()}, {frame0} pre-roll + {args.duration_tics} tics, seed {args.seed}")
     try:
         capture = match.run_match(
             sheets=sheets, iwad=iwad, map_name=args.map.upper(), seed=args.seed,
-            duration_tics=args.duration_tics, port=args.port, respawn_delay=args.respawn_delay,
+            duration_tics=total, video_from_tic=frame0, port=args.port, respawn_delay=args.respawn_delay,
             workdir=capture_dir, startup_timeout=args.startup_timeout,
             progress_timeout=args.progress_timeout, log=log)
     except match.MatchFailed as e:
         log(f"FAILED: {e}")
         return 1
 
-    data, problems, warnings = build(capture, args.duration_tics, sheets)
+    data, problems, warnings = build(capture, total, sheets, respawn_delay=args.respawn_delay)
     for w in warnings:
         log_file.write(f"warning: {w}\n")
     if warnings:
@@ -160,20 +171,20 @@ def main(argv=None):
         "platform": {"os": platform.platform(), "python": platform.python_version(),
                      "ffmpeg": tool_version("ffmpeg")},
         "duration_tics": args.duration_tics,
-        "frame0_tic": 0,
+        "frame0_tic": frame0,
         "respawn_delay_s": args.respawn_delay,
         "skill": game.SKILL,
         "controller": "engine.bots:PlaceholderBot",
         "bots": [{**roster.identity(by_slot[s]), "player_number": data["numbers"][s]} for s in roster.SLOTS],
         "weapons_present": map_data["weapons_present"],
         "engine": data["engine"],
-        "score": {"rule": bundle.SCORE_RULE, "rows": bundle.score_rows(data["events"], data["engine"])},
+        "score": {"rule": bundle.SCORE_RULE, "rows": bundle.score_rows(data["events"], data["engine"], frame0)},
         "event_counts": {t: sum(1 for e in data["events"] if e["type"] == t)
                          for t in ("frag", "telefrag", "suicide", "environmental_death", "respawn")},
         "obituary_wad": {"sha256": capture["obituary_wad_sha256"], "keys": len(obituaries.KEYS),
                          "format": "OBIT|<key>|<victim>|<killer>"},
         "notifications": {"unknown_lines": len(data["unknown"]), "unattributed_obituaries": data["unattributed"]},
-        "sync": {"barrier": True, "steps": args.duration_tics,
+        "sync": {"barrier": True, "steps": total,
                  "gaps": sum(m["gaps"] for m in capture["metas"].values()),
                  "frag_vector_mismatches": len(data["mismatches"])},
         "render": {**game.RENDER, "messages_per_slot": [capture["render_messages"][s] for s in roster.SLOTS]},

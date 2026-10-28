@@ -55,8 +55,11 @@ def check_match_json(m, map_data):
         p.append(f"ticrate {m['ticrate']}")
     if not (isinstance(m["duration_tics"], int) and m["duration_tics"] > 0):
         p.append(f"duration_tics {m['duration_tics']!r}")
-    if m["frame0_tic"] != 0:
-        p.append(f"frame0_tic {m['frame0_tic']} (only 0 is defined in schema 1)")
+    if not (isinstance(m["respawn_delay_s"], int) and m["respawn_delay_s"] >= 0):
+        p.append(f"respawn_delay_s {m['respawn_delay_s']!r}")
+    elif m["frame0_tic"] != bundle.frame0_tic(m["respawn_delay_s"], game.TICRATE):
+        p.append(f"frame0_tic {m['frame0_tic']}, expected {bundle.frame0_tic(m['respawn_delay_s'], game.TICRATE)} "
+                 f"for respawn_delay_s {m['respawn_delay_s']}")
     if game.version_tuple(m["vizdoom_version"]) < game.MIN_VERSION:
         p.append(f"vizdoom_version {m['vizdoom_version']} cannot capture events")
     if not SHA256.match(m["iwad"].get("sha256", "")):
@@ -74,6 +77,8 @@ def check_match_json(m, map_data):
     sync = m["sync"]
     if sync.get("barrier") is not True or sync.get("gaps") != 0 or sync.get("frag_vector_mismatches") != 0:
         p.append(f"sync {sync}")
+    if not p and sync.get("steps") != m["frame0_tic"] + m["duration_tics"]:
+        p.append(f"sync.steps {sync.get('steps')} != frame0_tic + duration_tics")
     if any(m["render"].get("messages_per_slot", [True])):
         p.append(f"message rendering on for some slot: {m['render'].get('messages_per_slot')}")
     bots = m["bots"]
@@ -167,7 +172,7 @@ def check_score(events, m):
     p = []
     if m["score"].get("rule") != bundle.SCORE_RULE:
         p.append(f"score rule {m['score'].get('rule')!r}")
-    expected = bundle.score_rows(events, m["engine"])
+    expected = bundle.score_rows(events, m["engine"], m["frame0_tic"])
     if m["score"].get("rows") != expected:
         p.append("score rows differ from the rule applied to events and engine counts")
     return p
@@ -235,11 +240,15 @@ def validate(bundle_dir):
     rep.check("match.json fields, IWAD sha256 matches map.json, sync, render", check_match_json(m, map_data))
     if not rep.ok:
         return rep, {}
-    n = m["duration_tics"]
-    rep.check(f"tics.jsonl: {n} tics x 8 slots, no gaps or duplicates, field rules", check_rows(rows, n))
-    rep.check("events.jsonl: types, fields, sources re-parse to the same events", check_events(events, m, n))
+    n, frame0 = m["duration_tics"], m["frame0_tic"]
+    total = frame0 + n
+    rep.check(f"tics.jsonl: {total} tics ({frame0} pre-roll + {n}) x 8 slots, no gaps or duplicates, field rules",
+              check_rows(rows, total))
+    rep.check("events.jsonl: types, fields, sources re-parse to the same events", check_events(events, m, total))
     rep.check("deaths pair with telemetry; FRAGCOUNT and DEATHCOUNT reconcile",
               bundle.reconcile(events, rows, m["engine"]))
+    rep.check(f"pre-roll: tic-0 deaths respawned by tic {bundle.respawn_tic(0, m['respawn_delay_s'], game.TICRATE)}",
+              bundle.preroll_problems(rows, m["respawn_delay_s"], game.TICRATE))
     rep.check("score rows follow the stated rule", check_score(events, m))
     videos = {}
     pov_sha = {v.get("slot"): v.get("sha256") for v in m.get("pov", [])}
@@ -249,7 +258,7 @@ def validate(bundle_dir):
         if pov_sha.get(s) != _sha256(path):
             problems.append("sha256 differs from match.json pov entry")
         videos[s] = info
-        rep.check(f"pov/slot{s}.mp4: h264 320x240 35fps, {n} frames", problems)
+        rep.check(f"pov/slot{s}.mp4: h264 320x240 35fps, {n} frames from tic {frame0}", problems)
     return rep, videos
 
 
