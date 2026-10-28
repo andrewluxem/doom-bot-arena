@@ -154,6 +154,35 @@ The last signature pass. Three rule changes:
 - **Acceptance.** A bot is accepted if it has at least one gating signature (`gate: true`, single or conjunction) that it meets in at least 8 of 10 holdout matches, with the roster pass rate at most 20% on each map. The holdout is the only evaluation acceptance is judged on.
 - **Behavior distributions leave acceptance.** The pairwise total variation report (milestone 2D) stays as a report line.
 
+### Milestone 2E: fit-2e on eval-2c + eval-2d
+
+`tools/fit_thresholds.py` on all 20 matches (seeds 401–405 and 501–505, both maps). Every item with `gate: true` was fitted: the 2E candidates and the gating items as they stood. Fits that separate on both maps were written to the sheets; items that do not separate were set to `gate: false` before the holdout, so the holdout tests a fixed set of gating signatures. Bot pass is over its 20 matches; others is the roster pass rate, E1M5 / MAP10.
+
+| bot | item as it stood | bot, others before | fitted | bot, others fitted | written |
+|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 104` | 2/20, 12% / 17% | `median_kill_distance < 104` | 2/20, 12% / 17% | no: gate false |
+| VEX | `engagement_initiations_rank <= 2` | 2/20, 27% / 27% | `engagement_initiations_rank <= 1` | 1/20, 14% / 13% | no: gate false |
+| VEX | `engagement_initiations_rank <= 2 AND median_kill_distance < 160` | 2/20, 2% / 0% | `engagement_initiations_rank <= 5` AND `median_kill_distance < 165` | 18/20, 10% / 10% | yes |
+| KRN | `item_timing_hit_rate > 0.5` | 3/20, 9% / 0% | `item_timing_hit_rate > 0.15` | 8/20, 18% / 19% | no: gate false |
+| KRN | `health_at_engagement_start_rank <= 2` | 9/20, 57% / 50% | — | — | no: gate false |
+| NUL | `distance_traveled_rank <= 2` | 19/20, 16% / 14% | `distance_traveled_rank <= 2` | 19/20, 16% / 14% | yes |
+| NUL | `kills_from_hold_share >= 0.3` | 10/20, 12% / 9% | `kills_from_hold_share >= 0.15` | 13/20, 13% / 10% | yes |
+| ASH | `melee_damage_share == 1.0` | 20/20, 0% / 0% | — | 20/20, 0% / 0% | not fitted (equality) |
+| ORB | `engagement_distance_in_band_share > 0.365` | 16/20, 4% / 24% | `engagement_distance_in_band_share > 0.397` | 14/20, 4% / 11% | yes |
+| ORB | `kiting_share > 0.1` | 20/20, 0% / 0% | `kiting_share > 0.1` | 20/20, 0% / 0% | yes |
+| HEX | `stationary_share > 0.56` | 20/20, 20% / 9% | `stationary_share > 0.561` | 20/20, 20% / 9% | yes |
+| HEX | `stationary_share > 0.56 AND kills_from_hold_share >= 0.3` | 14/20, 6% / 4% | `stationary_share > 0.561` AND `kills_from_hold_share >= 0.0` | 20/20, 18% / 9% | yes |
+| PYR | `third_party_kill_share >= 0.6` | 5/20, 6% / 6% | `third_party_kill_share >= 0.55` | 6/20, 7% / 6% | yes |
+| PYR | `first_contact_avoidance_share >= 0.6` | 20/20, 0% / 0% | `first_contact_avoidance_share >= 0.55` | 20/20, 0% / 0% | yes |
+| ZED | `behavior_switches_per_minute > 6` | 20/20, 61% / 67% | `behavior_switches_per_minute > 19` | 1/20, 20% / 11% | no: gate false |
+| ZED | `behavior_profile_drift > 0.3` | 17/20, 39% / 31% | `behavior_profile_drift > 0.42` | 4/20, 10% / 20% | no: gate false |
+
+Notes:
+- HEX's joint fit put `kills_from_hold_share` at `>= 0.0`, which only asks for at least one kill (n/a fails). The conjunction adds almost nothing to `stationary_share > 0.561` alone, whose E1M5 roster pass is exactly at the 20% limit.
+- VEX's conjunction fitted the rank to `<= 5` of 8: the separation comes from the kill distance, with the rank only excluding the three bots that start the fewest fights.
+- KRN and ZED have no gating signature: nothing separates on both maps.
+- The 2C half of the data predates the 2D item-timing fix and the pocket fix, so KRN's fit mixes two controllers.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.
