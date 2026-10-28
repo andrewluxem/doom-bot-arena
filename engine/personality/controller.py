@@ -831,6 +831,13 @@ class PersonalityBot:
         allow = nav.USABLE_KINDS if t >= self.lift_blocked_until else nav.USABLE_KINDS - {"lift"}
         blocked = {e for e, until in self.blocked.items() if until > t}
         self.path = g.astar(start, goal, live=self.live, allow=allow, blocked=blocked, penalty=self._flank_penalty(t))
+        if self.path is None and start is not None and goal is not None and g.region_id[goal] != g.region_id[start]:
+            # nearest() prefers the largest region, so a goal by a wall can snap to a node on the far side (E1M5's
+            # exit switch, seen from its pocket): try the goal's nearest node in the bot's own region
+            local = g.nearest(self.goal[0], self.goal[1], max_dist=256, need_clear=False, region=g.region_id[start])
+            if local is not None:
+                self.path = g.astar(start, local, live=self.live, allow=allow, blocked=blocked,
+                                    penalty=self._flank_penalty(t))
         self.path_i = 0
         self.goal_unreachable = self.path is None and g.move_check((x, y), self.goal) is None
 
