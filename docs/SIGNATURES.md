@@ -183,6 +183,32 @@ Notes:
 - KRN and ZED have no gating signature: nothing separates on both maps.
 - The 2C half of the data predates the 2D item-timing fix and the pocket fix, so KRN's fit mixes two controllers.
 
+### Milestone 2E holdout: the last signature pass
+
+Five matches per map at seeds 601–605 (`make docker-eval-2e`, bundles/eval-2e), with the fit-2e sheets, the pocket-exit fix, and spots scored by the moving traffic of all ten eval-2c and eval-2d bundles of the map. Acceptance is judged on these matches only: a gating signature met in 8 of 10, with roster pass at most 20% on each map.
+
+| bot | gating signature | met E1M5 + MAP10 | roster pass E1M5 | roster pass MAP10 | accepted |
+|---|---|---|---|---|---|
+| VEX | `engagement_initiations_rank <= 5 AND median_kill_distance < 165` | 5 + 2 = 7/10 | 1/30 (3%) | 6/29 (21%) | no |
+| KRN | none (fit-2e: nothing separates) | — | — | — | no |
+| NUL | `distance_traveled_rank <= 2` | 5 + 5 = 10/10 | 5/35 (14%) | 5/35 (14%) | **yes** |
+| NUL | `kills_from_hold_share >= 0.15` | 4 + 1 = 5/10 | 5/35 (14%) | 5/34 (15%) | — |
+| ASH | `melee_damage_share == 1.0` | 5 + 5 = 10/10 | 0/35 | 0/35 | **yes** |
+| ORB | `engagement_distance_in_band_share > 0.397` | 4 + 5 = 9/10 | 2/35 (6%) | 4/35 (11%) | **yes** |
+| ORB | `kiting_share > 0.1` | 3 + 5 = 8/10 | 0/35 | 0/35 | **yes** |
+| HEX | `stationary_share > 0.561` | 5 + 5 = 10/10 | 7/35 (20%) | 3/35 (9%) | **yes**, at the limit |
+| HEX | `stationary_share > 0.561 AND kills_from_hold_share >= 0.0` | 10/10 | 7/35 (20%) | 2/33 (6%) | **yes**, at the limit |
+| PYR | `first_contact_avoidance_share >= 0.55` | 5 + 5 = 10/10 | 0/35 | 0/35 | **yes** |
+| PYR | `third_party_kill_share >= 0.55` | 2 + 1 = 3/10 | 6/35 (17%) | 0/33 | — |
+| ZED | none (fit-2e: nothing separates) | — | — | — | no |
+
+Accepted: NUL, ASH, ORB, HEX and PYR. Not accepted: VEX (7/10, and 21% of the roster pass on MAP10), KRN and ZED (no gating signature). Behavior distributions (report line): 25 of 28 pairs are at least 0.3 apart in 8 of 10 matches; ASH/VEX (1/10), ORB/ZED (2/10) and PYR/VEX (6/10) are not.
+
+**Verdict.**
+- **Solid: ASH, ORB, PYR.** Each separates at 0–11% roster pass on both maps, on a mechanic the others do not have. ASH's melee share holds by construction (fist and chainsaw only), which is also what a viewer sees. ORB passes two independent signatures; kiting is 0% in the roster. PYR's avoidance is 10/10 at 0%, but its scavenging is not: third-party kills 3/10.
+- **Watchable but soft: HEX, NUL.** Both are accepted on "stays put" signatures, and each is the other's main overlap: HEX's stationary share has 20% roster pass on E1M5, exactly the limit. NUL is accepted on moving least, not on its ambush (kills from hold 5/10). Both camp where little happens: hold contact 0.06–0.25.
+- **Would not ship: VEX, KRN, ZED.** VEX's rusher identity does not separate from ASH and PYR (behavior TV 1/10 against ASH), and its fitted conjunction missed on MAP10. KRN's item timing works on MAP10 after the 2D fix (32 of 64 respawned items taken within 2 s), but on E1M5 it is n/a in 3 of 5 matches and nothing separates on both maps. ZED's erratic dials do not show in any metric: its switch rate and profile drift sit inside the roster's range.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.
