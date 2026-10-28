@@ -22,3 +22,7 @@ bundles/
 
 # runs and benches
 out/
+
+# web viewer
+node_modules/
+web/dist/

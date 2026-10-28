@@ -1,0 +1,7 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "headers": [
+    { "source": "/sample/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600" }] }
+  ]
+}
