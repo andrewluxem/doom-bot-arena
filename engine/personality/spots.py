@@ -89,8 +89,8 @@ def routes(graph):
     m = graph.geo.m
     near = lambda x, y: graph.nearest(x, y, max_dist=128, need_clear=False)
     starts = sorted({near(s["x"], s["y"]) for s in m["deathmatch_starts"]} - {None})
-    goals = sorted({near(w["x"], w["y"]) for w in m["weapons"] if w["in_deathmatch"]}
-                   | {near(i["x"], i["y"]) for i in m.get("items", []) if i["in_deathmatch"] and i["name"] in itemfacts.TIMED}
+    goals = sorted(({near(w["x"], w["y"]) for w in m["weapons"] if w["in_deathmatch"]}
+                    | {near(i["x"], i["y"]) for i in m.get("items", []) if i["in_deathmatch"] and i["name"] in itemfacts.TIMED})
                    - {None})
     out = []
     for a in starts:
