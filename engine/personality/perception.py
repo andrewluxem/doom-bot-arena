@@ -10,6 +10,11 @@ and only for the DoomPlayer labels in the current tic's buffer. A contact is key
 label's object id, stable for an actor's lifetime in this process; its slot is filled in
 when the table answers, two tics after the label first appears.
 
+Busy and hurt (PYR's engage_only, characters/README.md) come from the same buffer: a contact is busy
+at a tic when it faces another visible player more squarely than it faces this bot (within BUSY_CONE,
+inside BUSY_RANGE), as a player sees someone aiming elsewhere; it is hurt when a `Blood` label (the
+engine spawns blood where a player is hit) lies within BLOOD_RADIUS of it.
+
 Map items and geometry come from map.json: map knowledge is fair. Objects info is never
 used for enemy positions. Item labels (pickups the bot can see) are read by the controller
 for bots that time items (characters/README.md `item_timing`).
@@ -24,10 +29,15 @@ CORPSE = "DeadDoomPlayer"  # a contact whose last position now shows one has bee
 SELF_RADIUS = 20.0
 NEW_SIGHTING_GAP = 8  # tics unseen before a reappearance counts as a new sighting
 FORGET_TICS = 10 * 35
+BLOOD = "Blood"
+BLOOD_RADIUS = 48.0
+BUSY_CONE = 15.0
+BUSY_RANGE = 2048.0
 
 
 class Contact:
-    __slots__ = ("key", "slot", "first_seen", "last_seen", "x", "y", "z", "vx", "vy", "angle", "visible", "burned")
+    __slots__ = ("key", "slot", "first_seen", "last_seen", "x", "y", "z", "vx", "vy", "angle", "visible", "burned",
+                 "busy_at", "hurt_at")
 
     def __init__(self, key, slot, t):
         self.key, self.slot = key, slot
@@ -36,6 +46,7 @@ class Contact:
         self.angle = None  # facing when last seen (degrees, Doom convention): a player sees where others look
         self.visible = False
         self.burned = False  # an ambusher let this sighting go and will not re-open it
+        self.busy_at = self.hurt_at = -10 ** 9  # last tic seen aiming at another player, or bleeding
 
     def seen_for(self, t):
         return t - self.first_seen
@@ -71,6 +82,7 @@ class Perception:
             c.vx, c.vy = lab.object_velocity_x, lab.object_velocity_y
             c.angle = lab.object_angle
             self.last_any_contact = t
+        self._busy_and_hurt(t, state, own_x, own_y)
         gone = []
         for k, c in list(self.contacts.items()):
             seen_dying = not c.visible and any(math.hypot(cx - c.x, cy - c.y) < 48 for _, cx, cy in corpses)
@@ -78,6 +90,22 @@ class Perception:
                 del self.contacts[k]
                 gone.append(k)
         (identity or NoIdentity()).forget(gone)
+
+    def _busy_and_hurt(self, t, state, own_x, own_y):
+        seen = self.visible()
+        blood = [(l.object_position_x, l.object_position_y) for l in state.labels or [] if l.object_name == BLOOD]
+        for c in seen:
+            if any(math.hypot(bx - c.x, by - c.y) <= BLOOD_RADIUS for bx, by in blood):
+                c.hurt_at = t
+            if c.angle is None:
+                continue
+            at_me = abs(_off(c, own_x, own_y))
+            for o in seen:
+                if o is not c and math.hypot(o.x - c.x, o.y - c.y) <= BUSY_RANGE:
+                    off = abs(_off(c, o.x, o.y))
+                    if off <= BUSY_CONE and off < at_me:
+                        c.busy_at = t
+                        break
 
     def visible(self):
         return [c for c in self.contacts.values() if c.visible]
@@ -108,6 +136,11 @@ def name_labels(identity, t, labels):
     """{object id: slot or None} for labels in this tic's buffer: the one query of the identity table."""
     return (identity or NoIdentity()).identify(t, [(l.object_id, l.object_position_x, l.object_position_y)
                                                    for l in labels])
+
+
+def _off(c, x, y):
+    """Degrees between contact c's facing and the bearing from c to (x, y)."""
+    return (math.degrees(math.atan2(y - c.y, x - c.x)) - c.angle + 180.0) % 360.0 - 180.0
 
 
 def distance(c, x, y, t):

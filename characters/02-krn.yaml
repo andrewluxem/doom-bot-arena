@@ -45,8 +45,12 @@ signature:
   - metric: item_timing_hit_rate   # arrives within 2s of a timed item respawning
     op: ">"
     value: 0.5
-    gate: true
+    gate: false   # fit-2e (eval-2c+eval-2d): does not separate on both maps
   - metric: engagements_started_below_50hp_share
     op: "<"
     value: 0.1
     gate: false   # 2B baseline: 31% (E1M5) and 62% (MAP10) of placeholders pass
+  - metric: health_at_engagement_start_rank   # 1 = healthiest when it starts a fight (milestone 2E)
+    op: "<="
+    value: 2
+    gate: false   # fit-2e (eval-2c+eval-2d): does not separate on both maps

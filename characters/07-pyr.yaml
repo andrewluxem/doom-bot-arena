@@ -1,7 +1,7 @@
 slot: 7
 code: PYR
 name: Pyre
-archetype: flanker
+archetype: vulture
 colorset: 6
 
 # Dial re-rolls (ZED's mechanic): none.
@@ -21,13 +21,16 @@ temperament:
   preferred_range: [64, 256]
   flank: true   # path scoring penalizes approaching inside the target's view cone
   retreat_distance: null
+  engage_only:   # the Vulture: fights only someone already in a fight, keeps away from everyone else
+    busy: true   # seen aiming at another player
+    hurt_within_ms: 3000   # or seen bleeding in the last 3 s
 
 behavior_weights:
   HUNTING: 0.8
   ROAMING: 0.5
   STALKING: 0.2
   HOLDING_ANGLE: 0.0
-  COLLECTING_ARMOR: 1.0
+  COLLECTING_ARMOR: 0.5   # 1.0 as the flanker, whose signature was armor pickups
   COLLECTING_HEALTH: 0.5
   FLEEING: 0.4
 
@@ -42,11 +45,11 @@ items:
 spots: null
 
 signature:
-  - metric: approach_outside_view_cone_share   # first shot fired from behind or beside the target
-    op: ">"
-    value: 0.5
-    gate: false   # 2B baseline: 87% (E1M5) and 56% (MAP10) of placeholders pass
-  - metric: armor_pickups_rank   # 1 = most of the 8
-    op: "<="
-    value: 2
-    gate: false   # a rank cannot separate from an all-placeholder baseline
+  - metric: third_party_kill_share   # victim was fighting another slot or hurt by one in the 3 s before
+    op: ">="
+    value: 0.55   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 0.6
+    gate: true
+  - metric: first_contact_avoidance_share   # fresh enemies in view it does not take on
+    op: ">="
+    value: 0.55   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 0.6
+    gate: true   # milestone 2D: separates against the roster (2C: 10/10, the other seven 0-3%)

@@ -13,6 +13,15 @@ Two modes (characters/README.md `spots.mode`):
 Sight is 2.5D: a ray from eye height (floor + 41) stops at a one-sided line, a closed
 door, or a two-sided line whose far sector's floor is above, or ceiling below, eye height.
 
+Observed traffic (spots version 5): with bundles of the map at hand (traffic.py), both modes score by
+the traffic players were seen in, in and adjacent to the spot's 64-unit cell (T, normalised to the
+busiest candidate), and the watch angle faces the most traffic in sight:
+  sightlines_max               score = sightlines * T
+  sightlines_min_near_traffic  score = (1 - exposure)^2 * T
+A ray's traffic weight is the traffic of the cells it crosses, sampled every RAY_STEP units up to
+its sight length, clipped at the far end of the preferred range. A map with no bundles falls back
+to the route scorer below, and sightlines_max to sightlines alone.
+
 Routes are the nav-graph shortest paths from every deathmatch start to every weapon and timed
 item: where players go after they spawn. A route is covered by a spot when one of its nodes
 lies within ROUTE_RADIUS of the spot and in its sight; own traffic is how many routes pass
@@ -31,11 +40,13 @@ import numpy as np
 from engine import items as itemfacts
 from engine.geometry import EYE_HEIGHT
 from engine.personality import nav
+from engine.personality import traffic as trafficlib
 
-VERSION = 4
+VERSION = 5
 ROUTE_RADIUS = 256.0
 RAYS = 72
 RAY_MAX = 2048.0
+RAY_STEP = 32.0
 CANDIDATE_GRID = 64  # score nav grid nodes on a coarser lattice
 TOP = 40
 TOP_SIDE = 8  # candidates kept per smaller nav region (nav.py region_id), so a bot spawning there has spots
@@ -141,15 +152,45 @@ def _spread_by_region(cands, region_id):
     return sorted(out, key=lambda c: -c["score"])
 
 
-def compute(map_data, graph, requests):
-    """requests: [(mode, rmin, rmax)] -> {"params": [...], "candidates": {mode: [...]}}"""
+class Traffic:
+    """Observed traffic on a dense grid over the map, for vectorised lookups along rays."""
+
+    def __init__(self, traffic, bounds):
+        self.grid = trafficlib.Grid(traffic)
+        self.x0, self.y0 = trafficlib.cell(bounds["min_x"], bounds["min_y"])
+        x1, y1 = trafficlib.cell(bounds["max_x"], bounds["max_y"])
+        self.dense = np.zeros((x1 - self.x0 + 1, y1 - self.y0 + 1))
+        for (cx, cy), n in self.grid.counts.items():
+            if 0 <= cx - self.x0 < self.dense.shape[0] and 0 <= cy - self.y0 < self.dense.shape[1]:
+                self.dense[cx - self.x0, cy - self.y0] = n
+
+    def along_rays(self, x, y, rays, reach, sight):
+        """Per ray, the traffic of the cells it crosses (sampled every RAY_STEP) up to min(sight, reach)."""
+        steps = np.arange(RAY_STEP, reach + 1, RAY_STEP)
+        px = x + sight.dx[:, None] * steps[None, :]
+        py = y + sight.dy[:, None] * steps[None, :]
+        ix = np.floor(px / trafficlib.CELL).astype(int) - self.x0
+        iy = np.floor(py / trafficlib.CELL).astype(int) - self.y0
+        ok = ((steps[None, :] <= np.minimum(rays, reach)[:, None])
+              & (ix >= 0) & (ix < self.dense.shape[0]) & (iy >= 0) & (iy < self.dense.shape[1]))
+        vals = np.where(ok, self.dense[np.clip(ix, 0, self.dense.shape[0] - 1), np.clip(iy, 0, self.dense.shape[1] - 1)], 0.0)
+        return vals.sum(axis=1)
+
+
+def compute(map_data, graph, requests, traffic=None):
+    """requests: [(mode, rmin, rmax)] -> {"params": [...], "candidates": {mode: [...]}}
+
+    traffic: an observed traffic map of this map (traffic.build), or None for the route scorer."""
     sight = Sight(map_data)
     lattice = [i for i, (x, y, s) in enumerate(graph.nodes)
                if (x - graph.geo.bounds["min_x"] - nav.GRID // 2) % CANDIDATE_GRID == 0
                and (y - graph.geo.bounds["min_y"] - nav.GRID // 2) % CANDIDATE_GRID == 0
                and graph.clearance(x, y) >= 24]
     rays = {i: sight.rays(graph.nodes[i][0], graph.nodes[i][1], graph.nodes[i][2]) for i in lattice}
-    paths = routes(graph) if any(m == "sightlines_min_near_traffic" for m, _, _ in requests) else []
+    seen = Traffic(traffic, graph.geo.bounds) if traffic is not None else None
+    near = {i: seen.grid.around(graph.nodes[i][0], graph.nodes[i][1]) for i in lattice} if seen else {}
+    busiest_cell = max(near.values(), default=0) or 1
+    paths = routes(graph) if seen is None and any(m == "sightlines_min_near_traffic" for m, _, _ in requests) else []
     on_route = {}  # node -> the routes through it
     for k, path in enumerate(paths):
         for n in path:
@@ -163,14 +204,25 @@ def compute(map_data, graph, requests):
             continue
         param = {"mode": mode, "range": [rmin, rmax], "rays": RAYS, "ray_max": RAY_MAX,
                  "lattice": CANDIDATE_GRID, "candidates_scored": len(lattice)}
-        if mode == "sightlines_min_near_traffic":
+        if seen is not None:
+            param.update({"traffic": "observed", "traffic_cell": trafficlib.CELL, "traffic_bundles": traffic["bundles"],
+                          "traffic_samples": traffic["samples"], "ray_step": RAY_STEP})
+        elif mode == "sightlines_min_near_traffic":
             param.update({"traffic": "routes", "routes": len(paths), "route_radius": ROUTE_RADIUS})
         out["params"].append(param)
         cands = []
         for i in lattice:
             x, y, s = graph.nodes[i]
             r = rays[i]
-            if mode == "sightlines_max":
+            if seen is not None:
+                t_near = near[i] / busiest_cell
+                if mode == "sightlines_max":
+                    score = float(np.minimum(r, rmax).mean() / rmax) * t_near
+                else:
+                    score = (1 - float(np.minimum(r, 1024).mean() / 1024)) ** 2 * t_near
+                weights = seen.along_rays(x, y, r, rmax, sight)
+                watch = _watch(r, weights) if weights.any() else _watch(np.minimum(r, rmax))
+            elif mode == "sightlines_max":
                 score = float(np.minimum(r, rmax).mean() / rmax)
                 watch = _watch(np.minimum(r, rmax))
             else:
@@ -188,8 +240,11 @@ def compute(map_data, graph, requests):
                 own = len(on_route.get(i, ())) / busiest
                 score = math.sqrt(len(covered)) * (1 - exposure) ** 2 * math.sqrt(max(0.0, 1 - own))
                 watch = _watch(r, weights)
-            cands.append({"id": i, "x": x, "y": y, "sector": s, "floor": graph.floor[s],
-                          "score": round(score, 5), "watch_angle": round(watch, 1)})
+            c = {"id": i, "x": x, "y": y, "sector": s, "floor": graph.floor[s],
+                 "score": round(score, 5), "watch_angle": round(watch, 1)}
+            if seen is not None:
+                c["traffic"] = near[i]
+            cands.append(c)
         top = max((c["score"] for c in cands), default=1.0) or 1.0
         for c in cands:
             c["score"] = round(c["score"] / top, 4)
@@ -202,16 +257,16 @@ def requests_for(sheets):
                    for sh in sheets if sh.get("spots")})
 
 
-def table(map_data, cache_dir, requests, graph=None):
-    """Spot candidates for `requests`, cached by IWAD sha256, map, VERSION and the requests."""
-    key = "-".join(f"{m[:6]}{a}_{b}" for m, a, b in requests) or "none"
+def table(map_data, cache_dir, requests, graph=None, traffic=None):
+    """Spot candidates for `requests`, cached by IWAD sha256, map, VERSION, the requests and the traffic map."""
+    key = ("-".join(f"{m[:6]}{a}_{b}" for m, a, b in requests) or "none") + f"-tr{trafficlib.digest(traffic)}"
     # candidate ids are nav node indices, so the nav graph version is part of the key
     path = nav.cache_path(cache_dir, map_data, f"spots-{key}-nav{nav.VERSION}", VERSION).replace(".pickle", ".json")
     if os.path.isfile(path):
         with open(path) as f:
             return json.load(f)
     graph = graph or nav.load(map_data, cache_dir)
-    t = compute(map_data, graph, requests) if requests else {"params": [], "candidates": {}}
+    t = compute(map_data, graph, requests, traffic) if requests else {"params": [], "candidates": {}}
     os.makedirs(cache_dir, exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w") as f:

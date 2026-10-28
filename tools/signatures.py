@@ -1,21 +1,22 @@
 """Signature metrics per bot, from match bundles (docs/SIGNATURES.md).
 
     python3 tools/signatures.py bundles/<id> [bundles/<id> ...] [--bots VEX,HEX,NUL] [--compare] [--json out.json]
-    python3 tools/signatures.py --baseline bundles/baseline-2b/*/2* --json out.json bundles/eval-2b/*/2*
+    python3 tools/signatures.py --json out.json bundles/eval-2c/*/2*
 
-With --baseline (milestone 2B), separation is per map against all-placeholder baseline bundles
-of the same map and IWAD: every slot of every baseline match is a baseline bot-match. A metric
-gates on a map if it fails for at least 80% of them; it can count toward acceptance only if it
-gates on every map evaluated. The report then also gives every metric for all eight bots against
-the baseline, and the top behaviors shared between bots.
+When every bot in the bundles is a personality (milestone 2C), separation is per map against the
+roster: for a bot's metric, the other seven personalities' bot-matches on the same map and IWAD,
+measured against the bot's threshold. A metric separates on a map if at least 80% of them fail it;
+it gates if it separates on every map evaluated and the bot meets it in 80% of its matches. The
+report then also gives every metric for all eight bots against the other seven, and the top
+behaviors shared between bots.
 
 Every metric is computed for all eight bots, so ranks are defined. Each bot is then
 checked against the thresholds in its own characters/*.yaml signature block. Items marked
 `gate: false` are descriptive: reported, never part of whether the signature is met.
 
-A summary counts the matches in which each bot met its gating metrics. A separation
-section then prints, for each reported bot's metrics, its own values and the placeholders'
-values against the same threshold, and the placeholder pass rate: a gating metric must
+Bundles with placeholders (milestone 2A) use the placeholder rule instead. A summary counts the
+matches in which each bot met its gating metrics. A separation section then prints, for each
+reported bot's metrics, its own values and the placeholders' values against the same threshold, and the placeholder pass rate: a gating metric must
 fail for at least 80% of placeholder bot-matches in the same evaluation (SEPARATION).
 --compare also prints the metrics for every bot, the other personalities included.
 """
@@ -44,6 +45,9 @@ TIMED_SLACK = 70
 TIMED_ITEMS = itemfacts.TIMED
 HOLD_RADIUS = 16.0
 HOLD_TICS = 70
+BUSY_TICS = 35  # third party: the victim named another slot as its target in the second before the frag
+HURT_TICS = 105  # ...or took damage from another slot in the 3 s before it
+CONTACT_GAP = 35  # a player back in view after this long out of it is a new contact
 SEPARATION = 0.8
 PLACEHOLDER = "engine.bots:PlaceholderBot"
 OPS = {"<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge, "==": operator.eq}
@@ -75,6 +79,7 @@ class Bundle:
             self.rows[r["slot"]][r["tic"]] = r
         self.events = read_jsonl(os.path.join(path, "events.jsonl"))
         self._map = None
+        self._sight = None
         self.life = {s: self._lives(s) for s in self.slots}
         self.memo = {}  # (method, slot) -> result: every method below is pure for a bundle
 
@@ -166,6 +171,52 @@ class Bundle:
         return out
 
 
+    def hurt_by_others(self, v, s):
+        """Tics at which v took damage while some slot other than v and s dealt damage (schema 3)."""
+        return self._cached("hurt_by_others", (v, s), lambda: self._hurt_by_others(v, s))
+
+    def _hurt_by_others(self, v, s):
+        out = set()
+        if "damage_taken" not in self.rows[v][0]:
+            return out
+        others = [k for k in self.slots if k not in (v, s)]
+        for t in range(1, self.end):
+            if self.rows[v][t]["damage_taken"] > self.rows[v][t - 1]["damage_taken"] and any(
+                    self.rows[k][t]["damagecount"] > self.rows[k][t - 1]["damagecount"] for k in others):
+                out.add(t)
+        return out
+
+    def busy_elsewhere(self, v, s, t):
+        """v named a target other than s at some tic in [t - BUSY_TICS, t - 1], or took damage from another
+        slot (not s) in [t - HURT_TICS, t - 1]."""
+        if any(self.rows[v][k]["target_slot"] not in (None, s) for k in range(max(0, t - BUSY_TICS), t)):
+            return True
+        hurt = self.hurt_by_others(v, s)
+        return any(k in hurt for k in range(max(1, t - HURT_TICS), t))
+
+    def in_view(self, s):
+        """{other slot: [bool per tic]}: the other player alive and in s's view and line of sight (schema 2)."""
+        return self._cached("in_view", s, lambda: self._in_view(s))
+
+    def _in_view(self, s):
+        from tools.hold_contact import in_view
+        from engine.geometry import LineOfSight
+        if self._sight is None:
+            self._sight = (LineOfSight(self.map), [sec["floor"] for sec in self.map["sectors"]])
+        sight, floor = self._sight
+        out = {}
+        for o in self.slots:
+            if o == s:
+                continue
+            seen = [False] * self.end
+            for t in self.displayed():
+                me, other = self.rows[s][t], self.rows[o][t]
+                if me["alive"] and other["alive"] and math.hypot(other["x"] - me["x"], other["y"] - me["y"]) <= 2048:
+                    seen[t] = in_view(sight, floor, me, other)
+            out[o] = seen
+        return out
+
+
 # ---------------------------------------------------------------------- metrics
 def median_engagement_distance(B, s, sheet):
     d = sorted(x[2] for x in B.engagement_tics(s))
@@ -187,8 +238,13 @@ def _dist(a, b):
     return math.hypot(b["x"] - a["x"], b["y"] - a["y"])
 
 
+MELEE_KEYS = ("OB_MPFIST", "OB_MPCHAINSAW")
+
+
 def median_kill_distance(B, s, sheet):
-    return _median(_dist(B.rows[s][e["tic"]], B.rows[e["target"]][e["tic"]]) for e in B.frags_by(s))
+    """Over ranged kills only (milestone 2D): a fist or chainsaw kill, by its obituary key, is left out."""
+    return _median(_dist(B.rows[s][e["tic"]], B.rows[e["target"]][e["tic"]]) for e in B.frags_by(s)
+                   if e.get("key") not in MELEE_KEYS)
 
 
 def closing_share(B, s, sheet):
@@ -393,12 +449,91 @@ def approach_outside_view_cone_share(B, s, sheet):
     return out / n if n else None
 
 
+def third_party_kill_share(B, s, sheet):
+    """Share of the bot's kills whose victim was busy with someone else: it named another slot as its target in
+    the second before the frag, or took damage from another slot in the 3 s before it (schema 3)."""
+    kills = B.frags_by(s)
+    if not kills or "damage_taken" not in B.rows[s][0]:
+        return None
+    return sum(1 for e in kills if B.busy_elsewhere(e["target"], s, e["tic"])) / len(kills)
+
+
+def first_contact_avoidance_share(B, s, sheet):
+    """Over the bot's first contacts (another player coming into its view and line of sight after CONTACT_GAP
+    tics out of it, while not busy with anyone else), the share the bot does not name as its target within
+    the next 35 tics. Sight is reconstructed as in tools/hold_contact.py (schema 3)."""
+    if "damage_taken" not in B.rows[s][0]:
+        return None
+    n = avoided = 0
+    for o, seen in B.in_view(s).items():
+        last = -10 ** 9
+        for t in B.displayed():
+            if not seen[t]:
+                continue
+            if t - last > CONTACT_GAP and not B.busy_elsewhere(o, s, t):
+                n += 1
+                end = min(B.end, t + WINDOW + 1)
+                avoided += not any(B.rows[s][k]["target_slot"] == o for k in range(t, end))
+            last = t
+    return avoided / n if n else None
+
+
+def kiting_share(B, s, sheet):
+    eng = B.engagement_tics(s)
+    return sum(1 for t, _, _ in eng if B.rows[s][t]["behavior"] == "KITING") / len(eng) if eng else None
+
+
+def _alive_minutes(B, s):
+    return sum(1 for t in B.displayed() if B.life[s][t] is not None) / (TICRATE * 60)
+
+
+def engagement_initiations_per_minute(B, s, sheet):
+    minutes = _alive_minutes(B, s)
+    return len(B.engagements(s)) / minutes if minutes else None
+
+
+def _rank_desc(B, s, fn):
+    """Competition rank, descending (1 = largest); n/a ranks last."""
+    v = {k: fn(B, k, None) for k in B.slots}
+    if v[s] is None:
+        return len(B.slots)
+    return 1 + sum(1 for k in B.slots if v[k] is not None and v[k] > v[s])
+
+
+def engagement_initiations_rank(B, s, sheet):
+    return _rank_desc(B, s, engagement_initiations_per_minute)
+
+
+DRIFT_WINDOW = 20 * TICRATE
+
+
+def behavior_profile_drift(B, s, sheet):
+    shares = []
+    for w0 in range(B.f0, B.end - DRIFT_WINDOW + 1, DRIFT_WINDOW):
+        c = Counter(B.rows[s][t]["behavior"] for t in range(w0, w0 + DRIFT_WINDOW) if B.life[s][t] is not None)
+        n = sum(c.values())
+        shares.append({k: v / n for k, v in c.items()} if n >= WINDOW else None)
+    tv = [total_variation(a, b) for a, b in zip(shares, shares[1:]) if a is not None and b is not None]
+    return sum(tv) / len(tv) if tv else None
+
+
+def median_health_at_engagement_start(B, s, sheet):
+    return _median(B.rows[s][start]["health"] for start, _, _ in B.engagements(s))
+
+
+def health_at_engagement_start_rank(B, s, sheet):
+    return _rank_desc(B, s, median_health_at_engagement_start)
+
+
 METRICS = {f.__name__: f for f in (
     median_engagement_distance, median_kill_distance, closing_share, median_first_sight_engagement_distance,
     stationary_share, distance_traveled_rank, frags_within_1500ms_of_visibility_share, kills_from_hold_share,
     engagement_distance_in_band_share, retreat_on_close_share,
     engagements_started_below_50hp_share, item_timing_hit_rate, armor_pickups_rank,
-    behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share)}
+    behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share,
+    third_party_kill_share, first_contact_avoidance_share, kiting_share, engagement_initiations_per_minute,
+    engagement_initiations_rank, behavior_profile_drift, median_health_at_engagement_start,
+    health_at_engagement_start_rank)}
 
 
 SHEET_PARAMS = {"engagement_distance_in_band_share": lambda sh: tuple(sh["temperament"]["preferred_range"]),
@@ -423,6 +558,28 @@ def behavior_shares(B, s):
 
 
 # ---------------------------------------------------------------------- report
+def parts(item):
+    """A signature item and, for a conjunction (milestone 2E), its `and` part."""
+    return [item] + ([item["and"]] if item.get("and") else [])
+
+
+def label(item):
+    return " AND ".join(f"{p['metric']} {p['op']} {p['value']}" for p in parts(item))
+
+
+def item_values(B, s, item, sheet):
+    return tuple(value(B, s, p["metric"], sheet) for p in parts(item))
+
+
+def item_passes(item, vals):
+    """Every part passes; n/a in any part fails."""
+    return all(passes(p, v) for p, v in zip(parts(item), vals))
+
+
+def fmt_vals(vals):
+    return "/".join(fmt(v) for v in vals)
+
+
 def passes(item, v):
     return v is not None and OPS[item["op"]](v, item["value"])
 
@@ -435,9 +592,11 @@ def evaluate(B, sheets):
         sheet = by_code[code]
         sig = []
         for item in sheet.get("signature") or []:
-            v = value(B, s, item["metric"], sheet)
-            sig.append({"metric": item["metric"], "value": None if v is None else round(v, 4), "op": item["op"],
-                        "threshold": item["value"], "gate": item.get("gate", True), "pass": passes(item, v)})
+            vals = item_values(B, s, item, sheet)
+            sig.append({"metric": item["metric"], "value": None if vals[0] is None else round(vals[0], 4),
+                        "op": item["op"], "threshold": item["value"], "gate": item.get("gate", True),
+                        "pass": item_passes(item, vals), "label": label(item),
+                        "values": [None if v is None else round(v, 4) for v in vals]})
         gates = [x for x in sig if x["gate"]]
         out["bots"][code] = {
             "slot": s, "controller": B.controller[s],
@@ -484,7 +643,8 @@ def separation(bundles, sheets, codes):
     return out
 
 
-RANK_METRICS = ("distance_traveled_rank", "armor_pickups_rank")
+RANK_METRICS = ("distance_traveled_rank", "armor_pickups_rank", "engagement_initiations_rank",
+                "health_at_engagement_start_rank")
 
 
 def by_map(bundles):
@@ -494,21 +654,23 @@ def by_map(bundles):
     return out
 
 
-def baseline_values(baseline, metric, sheet):
-    """The metric for every slot of every baseline bundle, with the personality's sheet."""
-    vals = []
-    for B in baseline:
-        for s in B.slots:
-            if B.controller[s] != PLACEHOLDER:
-                raise SystemExit(f"{B.path}: slot {s} is not a placeholder; a baseline must be all placeholders")
-            vals.append(value(B, s, metric, sheet))
-    return vals
+def roster_values(Bs, code, metric, sheet):
+    """The metric for every other personality's slot in these bundles, with `code`'s sheet."""
+    return [value(B, s, metric, sheet) for B in Bs for s in B.slots
+            if B.code[s] != code and B.controller[s] != PLACEHOLDER]
 
 
-def separation_vs_baseline(bundles, baselines, sheets, codes):
-    """Per bot and signature item: on each map, the bot's values, the baseline's pass rate against the same
-    threshold, and whether the metric separates there. A metric may gate for acceptance only if it separates
-    on every map evaluated (docs/SIGNATURES.md, separation)."""
+def roster_item_values(Bs, code, item, sheet):
+    """Per other personality's slot, the values of every part of the item (a tuple), with `code`'s sheet."""
+    return [item_values(B, s, item, sheet) for B in Bs for s in B.slots
+            if B.code[s] != code and B.controller[s] != PLACEHOLDER]
+
+
+def separation_vs_roster(bundles, sheets, codes):
+    """Per bot and signature item: on each map, the bot's values and the other seven personalities' pass rate
+    against the same threshold (the roster baseline). A metric separates on a map if at least 80% of the other
+    personalities' bot-matches there fail it; it gates if it separates on every map evaluated and the bot
+    passes it in at least 80% of its matches (docs/SIGNATURES.md, separation)."""
     by_code = {sh["code"]: sh for sh in sheets}
     groups = by_map(bundles)
     out = []
@@ -516,38 +678,39 @@ def separation_vs_baseline(bundles, baselines, sheets, codes):
         sheet = by_code[code]
         for item in sheet.get("signature") or []:
             row = {"bot": code, "metric": item["metric"], "op": item["op"], "threshold": item["value"],
+                   "label": label(item), "conjunction": bool(item.get("and")),
                    "sheet_gate": item.get("gate", True), "rank_metric": item["metric"] in RANK_METRICS, "maps": {}}
             for key, Bs in groups.items():
-                base = baselines.get(key)
-                if not base:
-                    raise SystemExit(f"no baseline bundles for map {key[0]} (IWAD {key[1][:12]})")
-                own = [value(B, next(s for s in B.slots if B.code[s] == code), item["metric"], sheet) for B in Bs]
-                bv = baseline_values(base, item["metric"], sheet)
-                computed = [v for v in bv if v is not None]
-                p_pass = sum(passes(item, v) for v in computed)
-                fail_rate = 1 - p_pass / len(computed) if computed else None
+                own = [item_values(B, next(s for s in B.slots if B.code[s] == code), item, sheet) for B in Bs]
+                rv = roster_item_values(Bs, code, item, sheet)
+                computed = [v for v in rv if None not in v]
+                r_pass = sum(item_passes(item, v) for v in computed)
+                fail_rate = 1 - r_pass / len(computed) if computed else None
+                first = [v[0] for v in computed]
                 row["maps"][key[0]] = {
-                    "values": [None if v is None else round(v, 4) for v in own],
-                    "seeds": [B.m["seed"] for B in Bs], "passes": sum(passes(item, v) for v in own), "matches": len(own),
-                    "baseline": {"values": [None if v is None else round(v, 4) for v in bv], "computed": len(computed),
-                                 "na": len(bv) - len(computed), "passes": p_pass,
-                                 "pass_rate": None if not computed else round(p_pass / len(computed), 4),
-                                 "median": _median([v for v in computed]),
-                                 "range": [min(computed), max(computed)] if computed else None},
+                    "values": [[None if x is None else round(x, 4) for x in v] if row["conjunction"]
+                               else (None if v[0] is None else round(v[0], 4)) for v in own],
+                    "seeds": [B.m["seed"] for B in Bs], "passes": sum(item_passes(item, v) for v in own),
+                    "matches": len(own),
+                    "roster": {"computed": len(computed), "na": len(rv) - len(computed), "passes": r_pass,
+                               "pass_rate": None if not computed else round(r_pass / len(computed), 4),
+                               "median": _median(first),
+                               "range": [min(first), max(first)] if first else None},
                     "separates": fail_rate is not None and fail_rate >= SEPARATION}
             maps = row["maps"].values()
             row["passes"] = sum(m["passes"] for m in maps)
             row["matches"] = sum(m["matches"] for m in maps)
             row["separates_on"] = [k for k, m in row["maps"].items() if m["separates"]]
-            row["gates"] = len(row["separates_on"]) == len(row["maps"])
-            row["accepts"] = row["gates"] and row["passes"] >= SEPARATION * row["matches"]
+            row["gates"] = (len(row["separates_on"]) == len(row["maps"])
+                            and row["passes"] >= SEPARATION * row["matches"])
+            row["accepts"] = row["gates"] and row["sheet_gate"]
             out.append(row)
     return out
 
 
-def metric_matrix(bundles, baselines, sheets):
-    """Every metric for every bot (median over its matches per map), against the baseline's median and
-    range for that map, both computed with the bot's own sheet."""
+def metric_matrix(bundles, sheets):
+    """Every metric for every bot (median over its matches per map), against the median and range of the other
+    seven personalities on that map, all computed with the bot's own sheet."""
     groups = by_map(bundles)
     out = {}
     for metric in METRICS:
@@ -556,11 +719,32 @@ def metric_matrix(bundles, baselines, sheets):
             per = {}
             for key, Bs in groups.items():
                 own = [value(B, next(s for s in B.slots if B.code[s] == sh["code"]), metric, sh) for B in Bs]
-                bv = [v for v in baseline_values(baselines[key], metric, sh) if v is not None]
+                rv = [v for v in roster_values(Bs, sh["code"], metric, sh) if v is not None]
                 own_c = [v for v in own if v is not None]
                 per[key[0]] = {"median": _median(own_c), "n": len(own_c),
-                               "baseline_median": _median(bv), "baseline_range": [min(bv), max(bv)] if bv else None}
+                               "roster_median": _median(rv), "roster_range": [min(rv), max(rv)] if rv else None}
             out[metric][sh["code"]] = per
+    return out
+
+
+MIN_TV = 0.3  # the personality bench's MIN_DISTANCE
+
+
+def total_variation(a, b):
+    return 0.5 * sum(abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in set(a) | set(b))
+
+
+def behavior_distances(reports):
+    """Per pair of bots: total variation distance between their behavior distributions in each match, and in how
+    many matches it is at least MIN_TV (milestone 2D acceptance: in 80% of matches, for every pair)."""
+    codes = sorted({c for r in reports for c in r["bots"]})
+    out = {}
+    for i, a in enumerate(codes):
+        for b in codes[i + 1:]:
+            tv = [round(total_variation(r["bots"][a]["behavior_shares"], r["bots"][b]["behavior_shares"]), 4)
+                  for r in reports]
+            far = sum(1 for d in tv if d >= MIN_TV)
+            out[f"{a}/{b}"] = {"tv": tv, "far": far, "matches": len(tv), "ok": far >= SEPARATION * len(tv)}
     return out
 
 
@@ -577,45 +761,48 @@ def shared_tops(reports):
     return tops, pairs
 
 
-def report_vs_baseline(sep, matrix, reports, sheets):
-    print("== separation per map against the placeholder baseline (a metric gates on a map if at least "
-          f"{SEPARATION:.0%} of baseline bot-matches fail it; n/a left out)")
+def report_vs_roster(sep, matrix, reports, sheets):
+    print("== separation per map against the roster (a metric separates on a map if at least "
+          f"{SEPARATION:.0%} of the other seven personalities' bot-matches there fail it; n/a left out)")
     for x in sep:
-        status = "ACCEPTS" if x["accepts"] else ("gates" if x["gates"] else "does not gate")
-        print(f"  {x['bot']} {x['metric']} {x['op']} {x['threshold']}  [sheet {'gate' if x['sheet_gate'] else 'desc'}]  "
+        status = "GATES" if x["gates"] else "does not gate"
+        print(f"  {x['bot']} {x['label']}  [sheet {'gate' if x['sheet_gate'] else 'desc'}]  "
               f"met {x['passes']}/{x['matches']}; separates on {', '.join(x['separates_on']) or 'no map'}: {status}")
         for mp, m in x["maps"].items():
-            b = m["baseline"]
-            print(f"      {mp}: {x['bot']} {', '.join(fmt(v) for v in m['values'])} (pass {m['passes']}/{m['matches']})  "
-                  f"baseline pass {b['passes']}/{b['computed']}" + (f" ({b['pass_rate']:.0%})" if b["pass_rate"] is not None else "")
-                  + (f", n/a {b['na']}" if b["na"] else "")
-                  + (f", median {fmt(b['median'])}, range {fmt(b['range'][0])}-{fmt(b['range'][1])}" if b["range"] else ""))
-        if x["rank_metric"]:
-            print("      rank metric: in an all-placeholder match at least 2 of 8 bots hold rank <= 2, "
-                  "so at least 25% of baseline bot-matches pass a `<= 2` and it cannot separate")
-    print("== acceptance: bots with at least one metric that gates on every map and is met in "
-          f"{SEPARATION:.0%} of matches")
+            r = m["roster"]
+            vals = ", ".join(fmt_vals(v) if isinstance(v, list) else fmt(v) for v in m["values"])
+            print(f"      {mp}: {x['bot']} {vals} (pass {m['passes']}/{m['matches']})  "
+                  f"roster pass {r['passes']}/{r['computed']}" + (f" ({r['pass_rate']:.0%})" if r["pass_rate"] is not None else "")
+                  + (f", n/a {r['na']}" if r["na"] else "")
+                  + (f", median {fmt(r['median'])}, range {fmt(r['range'][0])}-{fmt(r['range'][1])}" if r["range"] else ""))
+    print("== acceptance (milestone 2E): a gating signature met in "
+          f"{SEPARATION:.0%} of matches, roster pass at most {1 - SEPARATION:.0%} on each map")
     for sh in sheets:
         rows = [x for x in sep if x["bot"] == sh["code"]]
-        ok = [x["metric"] for x in rows if x["accepts"]]
-        gating = [x["metric"] for x in rows if x["gates"]]
-        print(f"  {sh['code']}: " + (f"ACCEPTED by {', '.join(ok)}" if ok else
-                                      f"not accepted; gating metrics {', '.join(gating) or 'none'}"))
+        ok = [x["label"] for x in rows if x["accepts"]]
+        also = [x["label"] for x in rows if x["gates"] and not x["sheet_gate"]]
+        print(f"  {sh['code']}: " + (f"ACCEPTED by {'; '.join(ok)}" if ok else "not accepted")
+              + (f"  (descriptive items that would gate: {'; '.join(also)})" if also else ""))
+    dist = behavior_distances(reports)
+    print(f"== behavior distributions (report only since milestone 2E): pairs at least {MIN_TV} apart in total "
+          f"variation, out of the matches")
+    for pair, x in sorted(dist.items(), key=lambda kv: kv[1]["far"]):
+        print(f"  {pair}: {x['far']}/{x['matches']}{'' if x['ok'] else '  under 80%'}  min {min(x['tv']):.2f}  "
+              f"median {_median(x['tv']):.2f}")
+    bad = [p for p, x in dist.items() if not x["ok"]]
+    print(f"  {'all pairs apart in 80% of matches' if not bad else f'{len(bad)} pair(s) apart in under 80%: ' + ', '.join(bad)}")
     tops, pairs = shared_tops(reports)
-    print("== top behavior per bot per match")
+    print("== top behavior per bot per match (report only; not part of acceptance since milestone 2D)")
     for bundle, t in tops.items():
         print(f"  {bundle}: " + ", ".join(f"{c} {b}" for c, b in t.items()))
-    limit = 2
-    print(f"== pairs sharing a top behavior (allowed in at most {limit} of {len(reports)} matches)")
-    for pair, n in sorted(pairs.items(), key=lambda kv: -kv[1]):
-        print(f"  {pair}: {n}{'  OVER' if n > limit else ''}")
-    print("== every metric for every bot: median over its matches per map | baseline median (range), same sheet")
+    print("  pairs sharing a top behavior: " + ", ".join(f"{p} {n}" for p, n in sorted(pairs.items(), key=lambda kv: -kv[1])))
+    print("== every metric for every bot: median over its matches per map | other seven's median (range), same sheet")
     for metric, per_bot in matrix.items():
         print(f"  {metric}")
         for code, per in per_bot.items():
             print(f"      {code}  " + "   ".join(
-                f"{mp} {fmt(v['median'])} | {fmt(v['baseline_median'])}"
-                + (f" ({fmt(v['baseline_range'][0])}-{fmt(v['baseline_range'][1])})" if v["baseline_range"] else "")
+                f"{mp} {fmt(v['median'])} | {fmt(v['roster_median'])}"
+                + (f" ({fmt(v['roster_range'][0])}-{fmt(v['roster_range'][1])})" if v["roster_range"] else "")
                 for mp, v in per.items()))
 
 
@@ -629,30 +816,28 @@ def main(argv=None):
     ap.add_argument("--bots", help="comma-separated codes to report (default: all eight)")
     ap.add_argument("--compare", action="store_true", help="print the reported bots' metrics for all eight bots")
     ap.add_argument("--json", help="write the full report here")
-    ap.add_argument("--baseline", nargs="+", help="all-placeholder bundles: separation per map against them")
     args = ap.parse_args(argv)
     sheets = roster.load()
     codes = [c.strip().upper() for c in args.bots.split(",")] if args.bots else [sh["code"] for sh in sheets]
     bundles = [Bundle(p) for p in args.bundles]
     reports = [evaluate(B, sheets) for B in bundles]
-    if args.baseline:
-        baselines = by_map([Bundle(p) for p in args.baseline])
+    if all(B.controller[s] != PLACEHOLDER for B in bundles for s in B.slots):
         for rep in reports:
             print(f"== {rep['bundle']} (seed {rep['seed']})")
             for code in codes:
                 b = rep["bots"][code]
                 top = next(iter(b["behavior_shares"]), None)
                 print(f"  {code} frags {b['frags']} deaths {b['deaths']}  top {top} {b['behavior_shares'].get(top, 0):.2f}  "
-                      + "  ".join(f"{x['metric']} {fmt(x['value'])}{'' if x['pass'] else ' (fails)'}" for x in b["signature"]))
-        sep = separation_vs_baseline(bundles, baselines, sheets, codes)
-        matrix = metric_matrix(bundles, baselines, sheets)
-        report_vs_baseline(sep, matrix, reports, [sh for sh in sheets if sh["code"] in codes])
+                      + "  ".join(f"{x['label'] if len(x['values']) > 1 else x['metric']} "
+                           f"{fmt_vals(x['values'])}{'' if x['pass'] else ' (fails)'}" for x in b["signature"]))
+        sep = separation_vs_roster(bundles, sheets, codes)
+        matrix = metric_matrix(bundles, sheets)
+        report_vs_roster(sep, matrix, reports, [sh for sh in sheets if sh["code"] in codes])
         if args.json:
             tops, pairs = shared_tops(reports)
             with open(args.json, "w") as f:
                 json.dump({"matches": reports, "separation": sep, "matrix": matrix, "top_behaviors": tops,
-                           "shared_top_pairs": pairs,
-                           "baseline": {k[0]: [os.path.basename(B.path) for B in v] for k, v in baselines.items()}}, f, indent=1)
+                           "shared_top_pairs": pairs, "behavior_distances": behavior_distances(reports)}, f, indent=1)
         return 0
     sep = separation(bundles, sheets, codes)
     for rep in reports:

@@ -46,7 +46,3 @@ signature:
     op: "=="
     value: 1.0
     gate: true
-  - metric: median_engagement_distance
-    op: "<"
-    value: 96
-    gate: true

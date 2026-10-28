@@ -113,15 +113,21 @@ def bot(code, target_xy, target_angle=None, walls=()):
     t.angle = target_angle
     t.position_at = lambda tic: target_xy
     b.target = t
+    b.engaging = True
     return b
 
 
 def test_retreat_band_backs_off_on_a_clear_heading():
     orb = bot("ORB", (200.0, 0.0))  # 200 units east, inside retreat_distance 350
-    assert C.wrap180(orb._combat_move(0, 0.0, 0.0) - 180.0) == 0  # straight west
+    assert C.wrap180(orb._kite_move(0, 0.0, 0.0) - 180.0) == 0  # straight west
     walled = bot("ORB", (200.0, 0.0), walls=[lambda q: q[0] < -50 and abs(q[1]) < 60])
-    h = walled._combat_move(0, 0.0, 0.0)
+    h = walled._kite_move(0, 0.0, 0.0)
     assert 90 <= abs(C.wrap180(h)) < 180  # away from the target, round the wall
+    assert bot("ORB", (400.0, 0.0))._kite_move(0, 0.0, 0.0) is None  # outside the band
+    assert bot("VEX", (200.0, 0.0))._kite_move(0, 0.0, 0.0) is None  # no retreat_distance
+    idle = bot("ORB", (200.0, 0.0))
+    idle.engaging = False
+    assert idle._kite_move(0, 0.0, 0.0) is None  # only while engaging
     assert bot("ORB", (560.0, 0.0))._combat_move(0, 0.0, 0.0) is None  # at its desired range (560): holds
 
 

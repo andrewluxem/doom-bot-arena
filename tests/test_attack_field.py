@@ -10,7 +10,7 @@ def row(tic, alive=True, attack=False):
 
 def test_schema_4_adds_attack_only():
     assert bundle.ROW_FIELDS[4] - bundle.ROW_FIELDS[3] == {"attack"}
-    assert bundle.SCHEMA_VERSION == 4 and 4 in bundle.SCHEMA_VERSIONS
+    assert bundle.SCHEMA_VERSION >= 4 and 4 in bundle.SCHEMA_VERSIONS
 
 
 def test_attack_rules():

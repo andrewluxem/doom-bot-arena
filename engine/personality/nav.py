@@ -346,16 +346,18 @@ class NavGraph:
             self.node_grid.add_box(i, x, y, x, y)
 
     # ------------------------------------------------------------ queries
-    def nearest(self, x, y, max_dist=192, need_clear=True):
+    def nearest(self, x, y, max_dist=192, need_clear=True, region=None):
         """Nearest node reachable in a straight line from (x, y): of the largest region if there is one
-        in reach, else of any region. Without a clear one, the nearest node of the largest region."""
+        in reach, else of any region. Without a clear one, the nearest node of the largest region.
+        With `region`, only nodes of that region are considered."""
         fallback = None
-        for main_only in (True, False):
+        for main_only in ((False,) if region is not None else (True, False)):
             cands = []
             for r in (64, 128, max_dist):
                 cands = [(math.hypot(self.nodes[i][0] - x, self.nodes[i][1] - y), i)
                          for i in self.node_grid.query_box(x - r, y - r, x + r, y + r)
-                         if not main_only or self.region_id[i] == 0]
+                         if (not main_only or self.region_id[i] == 0)
+                         and (region is None or self.region_id[i] == region)]
                 if cands:
                     break
             for d, i in sorted(cands):

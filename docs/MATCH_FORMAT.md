@@ -1,6 +1,6 @@
 # Match bundle format
 
-**schema_version 4.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
+**schema_version 5.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
 
 ```
 bundles/<id>/
@@ -12,7 +12,7 @@ bundles/<id>/
   pov/slot1.mp4 … pov/slot8.mp4
 ```
 
-Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. Schema 3 adds the damage counters `hitcount`, `damagecount` and `damage_taken` to every row. Schema 4 (milestone 2B) adds `attack`, the bot's own ATTACK input. The validator still accepts schema 1 to 3 bundles, such as the viewer's samples.
+Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. Schema 3 adds the damage counters `hitcount`, `damagecount` and `damage_taken` to every row. Schema 4 (milestone 2B) adds `attack`, the bot's own ATTACK input. Schema 5 (milestone 2C) adds the `KITING` behavior and `match.json` `spot_traffic`. The validator still accepts schema 1 to 4 bundles, such as the viewer's samples.
 
 `id` = `<UTC yyyymmddThhmmssZ>-<map>-s<seed>`, e.g. `20261028T041144Z-MAP01-s1234`.
 
@@ -132,6 +132,7 @@ What a bot may know. Tests enforce the identity rule; review enforces the rest.
              "messages_per_slot": [false, false, false, false, false, false, false, false],
              "scoreboard_per_slot": [false, false, false, false, false, false, false, false]},
   "pov": [{"slot": 1, "path": "pov/slot1.mp4", "sha256": "…"}],
+  "spot_traffic": {"source": "observed", "bundle_kind": "eval", "cell": 64, "bundles": ["20261028T183738Z-MAP10-s211", "…"], "samples": 168000},
   "host_args": ["-host 8", "…"], "client_args": ["-join 127.0.0.1", "…"]
 }
 ```
@@ -316,8 +317,14 @@ Spot candidates for the stationary styles and the spots bots chose (`engine/pers
     - Own traffic is the number of routes through the spot's node, over the busiest node's.
     - Exposure is mean ray length clipped at 1024.
     - Version 1 instead counted shortest paths between every pair of starts, weapons and items, seen inside the bot's `preferred_range`.
+- **Observed traffic** (`spots_version` 5, milestone 2C). With bundles of the same map and IWAD given to the runner (`--traffic`), each mode is scored by the traffic players were seen in instead: every alive row of every slot in those bundles' displayed matches counts once in its 64-unit cell (cells aligned to the map origin), unless the bot is standing still: within 32 units of where it was 35 tics earlier in the same life (milestone 2D, `traffic_version` 3; a camper's own hold would otherwise be the busiest cell), and a spot's traffic T is the sum over its cell and the eight around it, over the busiest candidate's.
+  - `sightlines_max`: mean clipped ray length × T.
+  - `sightlines_min_near_traffic`: `(1 − exposure)² × T`.
+  - `watch_angle` faces the 13-ray window with the most traffic in sight: each ray sums the cells it crosses, sampled every 32 units, out to its sight length clipped at the far end of the preferred range.
+  - `params` gives `traffic: "observed"`, `traffic_bundles` and `traffic_samples`; candidates carry `traffic` (the 3×3 sum). `match.json` `spot_traffic` names the same bundles, or `{"source": "routes"}` when there were none and the route scorer above was used.
+  - Source (milestone 2D, `bundle_kind`): evaluation bundles of the map (every slot a personality) whenever the runner is given any; bundles with placeholders only when there are none. `make eval-2d` gives it the earlier evaluations (`TRAFFIC_EVALS`, eval-2c) and the 2C placeholder bundles; the holdout's own bundles never feed it.
 - `chosen` lists every spot a bot picked, from the tic it picked it to the tic it left it (`to_tic` is the last tic, inclusive). `angle` is the candidate's `watch_angle`.
-- Tables are cached by IWAD sha256, map, nav-graph version and parameters in `<out>/.cache/`.
+- Tables are cached by IWAD sha256, map, nav-graph version, parameters and a hash of the traffic map in `<out>/.cache/`.
 
 ## 8. POV video
 

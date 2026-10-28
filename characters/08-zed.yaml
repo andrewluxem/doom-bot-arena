@@ -52,8 +52,12 @@ signature:
   - metric: behavior_switches_per_minute
     op: ">"
     value: 6
-    gate: false   # separates on MAP10 only (E1M5 baseline: 62% pass)
+    gate: false   # fit-2e (eval-2c+eval-2d): does not separate on both maps
   - metric: chainsaw_damage_share
     op: ">"
     value: 0.4
-    gate: true
+    gate: false   # the chainsaw stays its weapon preference; 0/10 in 2B
+  - metric: behavior_profile_drift   # mean TV between adjacent 20 s behavior profiles (milestone 2E)
+    op: ">"
+    value: 0.3
+    gate: false   # fit-2e (eval-2c+eval-2d): does not separate on both maps

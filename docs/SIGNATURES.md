@@ -2,7 +2,7 @@
 
 Every metric named in a `signature` block of `characters/*.yaml`, defined so it can be computed from a bundle's `tics.jsonl` and `events.jsonl`. Two metrics also need item positions from the bundle's `map.json`; they say so. `tools/signatures.py` implements them and reports each bot against its sheet's thresholds.
 
-A sheet's signature is met in a match when every one of its gating metrics passes its `op` and `value`; descriptive metrics are reported and do not count (see Separation). A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass. `tools/signatures.py` prints each metric of the reported bots against the placeholders; `--compare` adds the other personalities.
+A sheet's signature is met in a match when every one of its gating metrics passes its `op` and `value`; descriptive metrics are reported and do not count (see Separation). A metric that cannot be computed (no data, such as no frags) is reported as `n/a` and does not pass. `tools/signatures.py` prints each metric of the reported bots against the other seven personalities (milestone 2C) or, for bundles with placeholders, against the placeholders; `--compare` adds the other personalities.
 
 Three metrics use the damage counters schema 3 adds (`hitcount`, `damagecount`, `damage_taken`), so they are `n/a` on schema 1 and 2 bundles: `melee_damage_share`, `chainsaw_damage_share` and `approach_outside_view_cone_share`.
 
@@ -46,7 +46,7 @@ All eight bots are personalities in milestone 2B, so the placeholders come from 
 - **Gating on a map.** A personality's metric gates on a map if it fails for at least 80% of that map's baseline bot-matches, against the personality's own threshold. A baseline bot-match where the metric is `n/a` is left out.
 - **Sheet parameters.** Metrics that read the sheet (`engagement_distance_in_band_share` reads `preferred_range`, `retreat_on_close_share` reads `retreat_distance`) are computed for baseline bots with the personality's sheet. In 2A each placeholder's own sheet was used, which made no difference for the 2A metrics.
 - **Acceptance.** A bot is accepted if at least one of its metrics gates on every map evaluated and passes in at least 80% of its matches (8 of 10 on MAP10 and E1M5).
-- **Rank metrics cannot gate against an all-placeholder baseline.** In every match at least two of the eight bots hold rank 1 or 2 (ties share the better rank), so at least 25% of baseline bot-matches pass a `<= 2`. At most 75% fail, under the 80% the rule needs. This affects `distance_traveled_rank` (NUL's 2A gate) and `armor_pickups_rank` (PYR).
+- **Rank metrics cannot gate against an all-placeholder baseline** (they can against the roster, milestone 2C on). In every match at least two of the eight bots hold rank 1 or 2 (ties share the better rank), so at least 25% of baseline bot-matches pass a `<= 2`. At most 75% fail, under the 80% the rule needs. This affects `distance_traveled_rank` (NUL's 2A gate) and `armor_pickups_rank` (PYR).
 - `tools/signatures.py --baseline <bundles> <bundles>` applies this per map. It prints every metric for all eight bots against the baseline, and the pairs of bots that share a top behavior.
 
 Applied to the 2B evaluation: five matches per map at seeds 301–305, against the baseline at seeds 201–205 (E1M5 seed 206 in place of 202). Sheets carry the resulting `gate` flags.
@@ -73,6 +73,142 @@ Applied to the 2B evaluation: five matches per map at seeds 301–305, against t
 
 Only ASH meets a gating metric in 8 of 10 matches, and that metric holds by construction: ASH may hold only the fist and chainsaw, and no placeholder ever melees. PYR has no metric that separates on either map. `approach_outside_view_cone_share` is lower for every personality (0.23 to 0.50 by map median) than for placeholders (0.59 to 0.69): placeholders' targets wander and rarely face them, so a placeholder baseline does not suit a metric measured against the target's facing.
 
+### Milestone 2C: the roster baseline
+
+From milestone 2C the placeholder baseline no longer decides gating; `make docker-baseline` stays for frag rates. Separation is against the roster instead:
+- **Roster bot-matches.** For a bot on a map, every slot of the other seven personalities in that map's evaluation matches: 35 per map at five matches. Each is measured against the bot's own threshold and, for metrics that read the sheet, with the bot's sheet. One where the metric is `n/a` is left out.
+- **Separates on a map** if at least 80% of the roster bot-matches on that map fail it.
+- **Gates** if it separates on every map evaluated and the bot passes it in at least 80% of its matches (8 of 10 on MAP10 and E1M5). Acceptance is at least one gating metric per bot.
+- **Rank metrics are valid against the roster.** The bot's own slot is not in its roster bot-matches, so a bot that holds rank 1 or 2 leaves at most one other rank `<= 2` in that match (more only on ties): about 1 in 7 roster bot-matches pass, under the 20% the rule allows. From milestone 2D NUL's `distance_traveled_rank` gates (2C: met 10/10, the other seven 5/35 on each map).
+- `tools/signatures.py` applies this rule whenever every bot in the bundles is a personality (`make signatures-2c`). It prints every metric for all eight bots against the other seven's median and range, and the pairs of bots that share a top behavior.
+
+Applied to the 2C evaluation (`make docker-eval-2c`): five matches per map at seeds 401–405, spots scored by the traffic of two placeholder matches per map (seeds 211, 212). Roster pass is how many of the other seven personalities' bot-matches pass the bot's threshold (n/a left out).
+
+| bot | metric | role | met E1M5 + MAP10 | roster pass E1M5 | roster pass MAP10 | gates |
+|---|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 140` | gate | 2 + 4 = 6/10 | 12/35 | 14/35 | no (separates on neither) |
+| VEX | `closing_share > 0.6` | descriptive | 5 + 5 | 21/29 | 7/31 | no |
+| KRN | `item_timing_hit_rate > 0.5` | gate | 0 + 0 = 0/10 (n/a in 3 E1M5 matches) | 1/6 | 0/19 | no (KRN fails it) |
+| KRN | `engagements_started_below_50hp_share < 0.1` | descriptive | 1 + 4 | 6/35 | 7/35 | no (met 5/10) |
+| NUL | `kills_from_hold_share >= 0.5` | gate | 2 + 1 = 3/10 | 3/35 | 1/35 | no (NUL fails it) |
+| NUL | `distance_traveled_rank <= 2` | descriptive | 5 + 5 = 10/10 | 5/35 | 5/35 | would gate |
+| NUL | `frags_within_1500ms_of_visibility_share >= 0.5` | descriptive | 5 + 5 | 25/35 | 30/35 | no |
+| ASH | `melee_damage_share == 1.0` | gate | 5 + 5 = 10/10 | 0/35 | 0/35 | **yes** |
+| ORB | `engagement_distance_in_band_share > 0.6` | gate | 1 + 0 = 1/10 | 1/35 | 0/35 | no (ORB fails it) |
+| ORB | `retreat_on_close_share > 0.7` | descriptive | 0 + 0 | 0/34 | 0/35 | no |
+| HEX | `stationary_share > 0.7` | gate | 3 + 2 = 5/10 | 5/35 | 1/35 | no (met 5/10) |
+| HEX | `median_first_sight_engagement_distance > 500` | descriptive | 5 + 3 | 23/35 | 3/35 | no |
+| PYR | `third_party_kill_share >= 0.6` | gate | 2 + 0 = 2/10 | 2/35 | 2/35 | no (PYR fails it) |
+| PYR | `first_contact_avoidance_share >= 0.5` | descriptive | 5 + 5 = 10/10 | 1/35 | 0/35 | would gate |
+| ZED | `behavior_switches_per_minute > 6` | gate | 5 + 5 = 10/10 | 22/35 | 23/35 | no (the roster passes it too) |
+| ZED | `chainsaw_damage_share > 0.4` | descriptive | 0 + 0 | 1/35 | 4/35 | no |
+
+Under the sheets' gate flags only ASH is accepted. Two descriptive metrics would qualify as gates under the roster rule: NUL's `distance_traveled_rank` and PYR's `first_contact_avoidance_share`. The sheets keep the flags milestone 2C set; changing them is a decision for the next milestone.
+
+### Milestone 2D: thresholds fitted to the 2C evaluation
+
+`tools/fit_thresholds.py` (`make docker-fit-2d`) fits every gating item with an inequality op to an evaluation. With the op kept, the threshold maximizes the bot's pass rate over its matches (n/a fails), subject to at most 20% of the other seven's bot-matches passing on each map (n/a left out), with the bot's sheet. Ties go to the lowest worst-map pass rate of the others, then to the value nearest the sheet's. The threshold then moves to the roundest number between the neighbouring observed values, so no outcome changes. A fit is written to the sheet only if, on each map, the bot passes more often than the others; the sheet comment names the run (`fit-2d`).
+
+Fit run `fit-2d` on eval-2c (MAP10 and E1M5, seeds 401–405; VEX's kill distance over ranged kills only):
+
+| bot | metric | 2C threshold: bot, others E1M5 / MAP10 | fitted: bot, others E1M5 / MAP10 | written |
+|---|---|---|---|---|
+| VEX | `median_kill_distance <` | 140: 6/10, 23% / 30% | 104: 2/10, 7% / 17% | yes |
+| KRN | `item_timing_hit_rate >` | 0.5: 0/10, 17% / 0% | 1.0: 0/10, 0% / 0% | no: KRN never passes |
+| NUL | `distance_traveled_rank <=` | 2: 10/10, 14% / 14% | 2: 10/10, 14% / 14% | yes (unchanged) |
+| NUL | `kills_from_hold_share >=` | 0.5: 3/10, 9% / 3% | 0.3: 4/10, 11% / 9% | yes |
+| ASH | `melee_damage_share ==` | 1.0: 10/10, 0% / 0% | not fitted (equality) | — |
+| ORB | `engagement_distance_in_band_share >` | 0.6: 1/10, 3% / 0% | 0.365: 8/10, 9% / 17% | yes |
+| HEX | `stationary_share >` | 0.7: 5/10, 14% / 3% | 0.56: 10/10, 17% / 11% | yes |
+| PYR | `third_party_kill_share >=` | 0.6: 2/10, 6% / 6% | 0.7: 2/10, 3% / 0% | no: 0/5 on MAP10 |
+| PYR | `first_contact_avoidance_share >=` | 0.5: 10/10, 3% / 0% | 0.6: 10/10, 0% / 0% | yes |
+| ZED | `behavior_switches_per_minute >` | 6: 10/10, 63% / 66% | 17.6: 3/10, 20% / 11% | no: 0/5 on MAP10 |
+
+Fitted on the same matches they are scored on, these are optimistic; the 2D holdout (seeds 501–505) is the test.
+
+### Milestone 2D holdout
+
+Five matches per map at seeds 501–505 (`make docker-eval-2d`, bundles/eval-2d), with the fit-2d thresholds, the item-timing fix, and spots scored by eval-2c traffic (moving rows only). Acceptance is judged on these matches alone. Roster pass is the other seven's bot-matches passing the bot's threshold (n/a left out); a metric separates on a map at 20% or less.
+
+| bot | gating metric | met E1M5 + MAP10 | roster pass E1M5 | roster pass MAP10 | gates |
+|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 104` | 0 + 0 = 0/10 | 5/28 (18%) | 5/29 (17%) | no: VEX fails it |
+| KRN | `item_timing_hit_rate > 0.5` | 1 + 2 = 3/10 (n/a in 4 E1M5 matches) | 0/5 | 0/18 | no: met 3/10 |
+| NUL | `distance_traveled_rank <= 2` | 4 + 5 = 9/10 | 6/35 (17%) | 5/35 (14%) | **yes** |
+| NUL | `kills_from_hold_share >= 0.3` | 2 + 4 = 6/10 | 4/33 (12%) | 3/34 (9%) | no: met 6/10 |
+| ASH | `melee_damage_share == 1.0` | 5 + 5 = 10/10 | 0/33 | 0/35 | **yes** |
+| ORB | `engagement_distance_in_band_share > 0.365` | 4 + 4 = 8/10 | 0/34 | 11/35 (31%) | no: MAP10 roster over 20% |
+| HEX | `stationary_share > 0.56` | 5 + 5 = 10/10 | 8/35 (23%) | 2/35 (6%) | no: E1M5 roster over 20% |
+| PYR | `third_party_kill_share >= 0.6` | 3 + 0 = 3/10 | 2/33 (6%) | 2/35 (6%) | no: met 3/10 |
+| PYR | `first_contact_avoidance_share >= 0.6` | 5 + 5 = 10/10 | 0/34 | 0/35 | **yes** |
+| ZED | `behavior_switches_per_minute > 6` | 5 + 5 = 10/10 | 21/35 (60%) | 24/35 (69%) | no: the roster passes it |
+
+KRN's item timing after the 2D fix: 18 of 44 pickups of a respawned item within 70 tics of the respawn on MAP10 (2C: 3 of 43), 2 of 2 on E1M5 (2C: 0 of 10); median latency 140 and 0 tics (2C: 1725 and 1900). It is still n/a in 4 of 5 E1M5 matches. KRN is at full health most of the time there, so it cannot take the timed health items, and the map's one GreenArmor is unreachable from the nav graph (`thing_node` finds no node). In seed 501 KRN spawned at (−1432, 720), outside the largest nav region, and never moved for the whole match: COLLECTING_ARMOR with no reachable armor, no pocket exit taken. That bug is not fixed in milestone 2D.
+
+Accepted: NUL, ASH and PYR. Behavior distributions: 24 of 28 pairs are at least 0.3 apart in 8 of 10 matches; ASH/VEX (0/10, median 0.15), ORB/ZED (3/10), KRN/PYR (6/10) and PYR/VEX (7/10) are not.
+
+### Milestone 2E: conjunctions, and acceptance on gating signatures
+
+The last signature pass. Three rule changes:
+- **A signature may be a conjunction of up to two metrics.** A sheet item with an `and:` block (its own `metric`, `op`, `value`) passes in a bot-match only when both parts pass; n/a in either part fails. Separation is measured on the conjunction: the roster pass rate on a map is the share of the other seven's bot-matches there passing both parts, each with the bot's threshold and sheet. A roster bot-match with either part n/a is left out. `tools/fit_thresholds.py` fits a conjunction's two thresholds jointly on a grid of observed values.
+- **Acceptance.** A bot is accepted if it has at least one gating signature (`gate: true`, single or conjunction) that it meets in at least 8 of 10 holdout matches, with the roster pass rate at most 20% on each map. The holdout is the only evaluation acceptance is judged on.
+- **Behavior distributions leave acceptance.** The pairwise total variation report (milestone 2D) stays as a report line.
+
+### Milestone 2E: fit-2e on eval-2c + eval-2d
+
+`tools/fit_thresholds.py` on all 20 matches (seeds 401–405 and 501–505, both maps). Every item with `gate: true` was fitted: the 2E candidates and the gating items as they stood. Fits that separate on both maps were written to the sheets; items that do not separate were set to `gate: false` before the holdout, so the holdout tests a fixed set of gating signatures. Bot pass is over its 20 matches; others is the roster pass rate, E1M5 / MAP10.
+
+| bot | item as it stood | bot, others before | fitted | bot, others fitted | written |
+|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 104` | 2/20, 12% / 17% | `median_kill_distance < 104` | 2/20, 12% / 17% | no: gate false |
+| VEX | `engagement_initiations_rank <= 2` | 2/20, 27% / 27% | `engagement_initiations_rank <= 1` | 1/20, 14% / 13% | no: gate false |
+| VEX | `engagement_initiations_rank <= 2 AND median_kill_distance < 160` | 2/20, 2% / 0% | `engagement_initiations_rank <= 5` AND `median_kill_distance < 165` | 18/20, 10% / 10% | yes |
+| KRN | `item_timing_hit_rate > 0.5` | 3/20, 9% / 0% | `item_timing_hit_rate > 0.15` | 8/20, 18% / 19% | no: gate false |
+| KRN | `health_at_engagement_start_rank <= 2` | 9/20, 57% / 50% | — | — | no: gate false |
+| NUL | `distance_traveled_rank <= 2` | 19/20, 16% / 14% | `distance_traveled_rank <= 2` | 19/20, 16% / 14% | yes |
+| NUL | `kills_from_hold_share >= 0.3` | 10/20, 12% / 9% | `kills_from_hold_share >= 0.15` | 13/20, 13% / 10% | yes |
+| ASH | `melee_damage_share == 1.0` | 20/20, 0% / 0% | — | 20/20, 0% / 0% | not fitted (equality) |
+| ORB | `engagement_distance_in_band_share > 0.365` | 16/20, 4% / 24% | `engagement_distance_in_band_share > 0.397` | 14/20, 4% / 11% | yes |
+| ORB | `kiting_share > 0.1` | 20/20, 0% / 0% | `kiting_share > 0.1` | 20/20, 0% / 0% | yes |
+| HEX | `stationary_share > 0.56` | 20/20, 20% / 9% | `stationary_share > 0.561` | 20/20, 20% / 9% | yes |
+| HEX | `stationary_share > 0.56 AND kills_from_hold_share >= 0.3` | 14/20, 6% / 4% | `stationary_share > 0.561` AND `kills_from_hold_share >= 0.0` | 20/20, 18% / 9% | yes |
+| PYR | `third_party_kill_share >= 0.6` | 5/20, 6% / 6% | `third_party_kill_share >= 0.55` | 6/20, 7% / 6% | yes |
+| PYR | `first_contact_avoidance_share >= 0.6` | 20/20, 0% / 0% | `first_contact_avoidance_share >= 0.55` | 20/20, 0% / 0% | yes |
+| ZED | `behavior_switches_per_minute > 6` | 20/20, 61% / 67% | `behavior_switches_per_minute > 19` | 1/20, 20% / 11% | no: gate false |
+| ZED | `behavior_profile_drift > 0.3` | 17/20, 39% / 31% | `behavior_profile_drift > 0.42` | 4/20, 10% / 20% | no: gate false |
+
+Notes:
+- HEX's joint fit put `kills_from_hold_share` at `>= 0.0`, which only asks for at least one kill (n/a fails). The conjunction adds almost nothing to `stationary_share > 0.561` alone, whose E1M5 roster pass is exactly at the 20% limit.
+- VEX's conjunction fitted the rank to `<= 5` of 8: the separation comes from the kill distance, with the rank only excluding the three bots that start the fewest fights.
+- KRN and ZED have no gating signature: nothing separates on both maps.
+- The 2C half of the data predates the 2D item-timing fix and the pocket fix, so KRN's fit mixes two controllers.
+
+### Milestone 2E holdout: the last signature pass
+
+Five matches per map at seeds 601–605 (`make docker-eval-2e`, bundles/eval-2e), with the fit-2e sheets, the pocket-exit fix, and spots scored by the moving traffic of all ten eval-2c and eval-2d bundles of the map. Acceptance is judged on these matches only: a gating signature met in 8 of 10, with roster pass at most 20% on each map.
+
+| bot | gating signature | met E1M5 + MAP10 | roster pass E1M5 | roster pass MAP10 | accepted |
+|---|---|---|---|---|---|
+| VEX | `engagement_initiations_rank <= 5 AND median_kill_distance < 165` | 5 + 2 = 7/10 | 1/30 (3%) | 6/29 (21%) | no |
+| KRN | none (fit-2e: nothing separates) | — | — | — | no |
+| NUL | `distance_traveled_rank <= 2` | 5 + 5 = 10/10 | 5/35 (14%) | 5/35 (14%) | **yes** |
+| NUL | `kills_from_hold_share >= 0.15` | 4 + 1 = 5/10 | 5/35 (14%) | 5/34 (15%) | — |
+| ASH | `melee_damage_share == 1.0` | 5 + 5 = 10/10 | 0/35 | 0/35 | **yes** |
+| ORB | `engagement_distance_in_band_share > 0.397` | 4 + 5 = 9/10 | 2/35 (6%) | 4/35 (11%) | **yes** |
+| ORB | `kiting_share > 0.1` | 3 + 5 = 8/10 | 0/35 | 0/35 | **yes** |
+| HEX | `stationary_share > 0.561` | 5 + 5 = 10/10 | 7/35 (20%) | 3/35 (9%) | **yes**, at the limit |
+| HEX | `stationary_share > 0.561 AND kills_from_hold_share >= 0.0` | 10/10 | 7/35 (20%) | 2/33 (6%) | **yes**, at the limit |
+| PYR | `first_contact_avoidance_share >= 0.55` | 5 + 5 = 10/10 | 0/35 | 0/35 | **yes** |
+| PYR | `third_party_kill_share >= 0.55` | 2 + 1 = 3/10 | 6/35 (17%) | 0/33 | — |
+| ZED | none (fit-2e: nothing separates) | — | — | — | no |
+
+Accepted: NUL, ASH, ORB, HEX and PYR. Not accepted: VEX (7/10, and 21% of the roster pass on MAP10), KRN and ZED (no gating signature). Behavior distributions (report line): 25 of 28 pairs are at least 0.3 apart in 8 of 10 matches; ASH/VEX (1/10), ORB/ZED (2/10) and PYR/VEX (6/10) are not.
+
+**Verdict.**
+- **Solid: ASH, ORB, PYR.** Each separates at 0–11% roster pass on both maps, on a mechanic the others do not have. ASH's melee share holds by construction (fist and chainsaw only), which is also what a viewer sees. ORB passes two independent signatures; kiting is 0% in the roster. PYR's avoidance is 10/10 at 0%, but its scavenging is not: third-party kills 3/10.
+- **Watchable but soft: HEX, NUL.** Both are accepted on "stays put" signatures, and each is the other's main overlap: HEX's stationary share has 20% roster pass on E1M5, exactly the limit. NUL is accepted on moving least, not on its ambush (kills from hold 5/10). Both camp where little happens: hold contact 0.06–0.25.
+- **Would not ship: VEX, KRN, ZED.** VEX's rusher identity does not separate from ASH and PYR (behavior TV 1/10 against ASH), and its fitted conjunction missed on MAP10. KRN's item timing works on MAP10 after the 2D fix (32 of 64 respawned items taken within 2 s), but on E1M5 it is n/a in 3 of 5 matches and nothing separates on both maps. ZED's erratic dials do not show in any metric: its switch rate and profile drift sit inside the roster's range.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.
@@ -93,10 +229,10 @@ Only ASH meets a gating metric in 8 of 10 matches, and that metric holds by cons
 ### median_engagement_distance
 Median engagement distance over all of the bot's engagement tics in the displayed match. Each tic counts once, so long fights weigh more than short ones. `n/a` with fewer than 35 engagement tics.
 
-ASH `< 96`.
+ASH `< 96` until milestone 2C, when it left ASH's sheet (0 of 10 in 2B).
 
 ### median_kill_distance
-Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's kills. `n/a` with no kills. Where a rusher fights, not where it first sees someone.
+Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's ranged kills: kills whose obituary key is `OB_MPFIST` or `OB_MPCHAINSAW` are left out (milestone 2D; before, ASH passed by construction). `n/a` with no ranged kills. Where a rusher fights, not where it first sees someone.
 
 VEX `< 140`, gating (`< 160` until milestone 2B).
 
@@ -113,7 +249,7 @@ HEX `> 500`, descriptive: most placeholders pass it too.
 ### stationary_share
 Share of the bot's alive tics in the displayed match at which it is within 32 units of where it was 35 tics earlier, in the same life. The first 35 tics of each life cannot qualify. Small strafes around a held spot count as stationary; knockback that moves the bot more than 32 units in a second does not.
 
-HEX `> 0.7`, gating.
+HEX `> 0.7`, gating (`> 0.56` from fit-2d). Milestone 2E candidate: HEX `stationary_share` AND `kills_from_hold_share`, fitted jointly.
 
 ### distance_traveled_rank
 Each bot's distance travelled is the sum of its step lengths in the displayed match. Ranked ascending: 1 = least of the eight.
@@ -138,7 +274,7 @@ NUL `>= 0.5`, descriptive. It was added as a second gating candidate for NUL, wi
 ### engagement_distance_in_band_share
 Share of the bot's engagement tics whose engagement distance lies inside its sheet's `temperament.preferred_range` (inclusive).
 
-ORB `> 0.6`.
+ORB `> 0.6`, gating.
 
 ### retreat_on_close_share
 A **close approach** is an engagement tic where the engagement distance is below the sheet's `temperament.retreat_distance`, while the previous tic of the same engagement was not (or the engagement starts inside it).
@@ -147,7 +283,7 @@ It is **answered** if, over the next 35 tics of that engagement, the bot's own s
 
 Share of close approaches answered. `n/a` with none.
 
-ORB `> 0.7`.
+ORB `> 0.7`, descriptive from milestone 2C.
 
 ### engagements_started_below_50hp_share
 Share of the bot's engagements in the displayed match whose start tic has `health < 50`. `target_slot` is the bot's own report, so this measures fights the bot took up while hurt, not ones it was dragged into.
@@ -167,12 +303,12 @@ KRN `> 0.5`.
 ### armor_pickups_rank
 Each bot's armor pickups in the displayed match, ranked descending: 1 = most of the eight.
 
-PYR `<= 2`.
+PYR `<= 2` until milestone 2C.
 
 ### behavior_switches_per_minute
 Count of alive steps where `behavior` differs between `t − 1` and `t`, divided by the bot's alive minutes in the displayed match. A step into or out of `DEAD` or `RESPAWNING` is not a switch.
 
-ZED `> 6`.
+ZED `> 6`, gating from milestone 2C.
 
 ### melee_damage_share
 Share of the damage the bot dealt in the displayed match that it dealt while holding a weapon in engine slot 1 (fist or chainsaw) at `t − 1`. Damage to barrels counts; its own splash is not damage dealt. Barrel blasts it set off count, attributed to the weapon in hand. `n/a` with no damage dealt; schema 3 only.
@@ -182,13 +318,57 @@ ASH `== 1.0`. ASH may hold only the fist and chainsaw, so a lower value means da
 ### chainsaw_damage_share
 As `melee_damage_share`, counting only damage dealt while engine slot 1 is held and `weapon_name` is `chainsaw`.
 
-ZED `> 0.4`.
+ZED `> 0.4`, descriptive from milestone 2C; the chainsaw stays its weapon preference.
 
 ### approach_outside_view_cone_share
 Over the bot's engagements in the displayed match, take the first tic `t` of each where the bot lands a hit (`hitcount` rises) and its target takes damage (`damage_taken` rises) in the same tic. The engagement counts as outside if, at `t`, the bot lies more than 45 degrees off the target's facing at `t − 1`: outside a 90-degree view cone centred on the target's `angle`. Share over engagements with such a hit. Two attackers hitting the same target in one tic cannot be told apart. `n/a` with none; schema 3 only.
 
-PYR `> 0.5`.
+PYR `> 0.5` until milestone 2C.
+
+### third_party_kill_share
+Over the bot's kills, the share whose victim was busy with someone else when it died:
+- at some tic in the 35 before the frag (`k − 35 … k − 1`), the victim's `target_slot` named a slot other than the bot; or
+- at some tic in the 105 before the frag, the victim's `damage_taken` rose while the `damagecount` of a slot other than the bot and the victim rose in the same tic (damage from another slot; two attackers in one tic cannot be told apart).
+
+`n/a` with no kills; schema 3 only.
+
+PYR `>= 0.6`, gating (milestone 2C).
+
+### first_contact_avoidance_share
+A **first contact** is another player coming into the bot's view after at least 35 tics out of it, while that player is not busy with anyone else (as in `third_party_kill_share`, at the contact's first tic). "In view" is reconstructed as in `tools/hold_contact.py`: alive, within 2048 units, inside the bot's 90-degree view cone widened by the player's radius, with 2.5D line of sight from the bot's eye.
+
+Share of first contacts the bot does not name as its `target_slot` within the next 35 tics. `n/a` with none; schema 3 only.
+
+PYR `>= 0.5`, descriptive.
+
+### kiting_share
+Share of the bot's engagement tics whose row has `behavior: KITING`. `n/a` with no engagement tics; schema 5 only (earlier bundles have no `KITING`).
+
+ORB gate candidate (milestone 2E).
+
+### engagement_initiations_per_minute
+Engagements the bot starts (each engagement is a run of its own `target_slot`, started at its first tic, as in Common terms) in the displayed match, divided by its alive minutes there. `n/a` with no alive tics.
+
+### engagement_initiations_rank
+`engagement_initiations_per_minute` ranked descending over the eight bots: 1 = most. A bot with `n/a` ranks last.
+
+VEX gate candidate `<= 2`, alone or in conjunction with `median_kill_distance < 160` (milestone 2E).
+
+### behavior_profile_drift
+Split the displayed match into consecutive 20 s windows (700 tics; a last, shorter window is dropped). In each window, take the bot's behavior shares over its alive tics, as in Behavior distribution; a window with fewer than 35 alive tics has none. For each pair of adjacent windows that both have shares, compute the total variation distance between them. The metric is the mean over those pairs; `n/a` with none.
+
+ZED gate candidate (milestone 2E): its dials are re-rolled every 20 s.
+
+### median_health_at_engagement_start
+Median of the bot's `health` at the start tic of each engagement it starts in the displayed match. `n/a` with no engagements.
+
+### health_at_engagement_start_rank
+`median_health_at_engagement_start` ranked descending over the eight bots: 1 = healthiest. A bot with `n/a` ranks last.
+
+KRN gate candidate `<= 2` (milestone 2E).
 
 ## Behavior distribution
 
 Not a signature, but part of milestone 2A's acceptance: a bot's **behavior share** is the fraction of its alive tics in the displayed match spent in each `behavior` value, `RESPAWNING` included. Its top behavior is the one with the largest share.
+
+**Milestone 2D: total variation instead of top behaviors.** Behavior acceptance is the personality bench's measure applied to every pair of bots: the total variation distance between two bots' behavior shares in a match, `½ Σ |p(b) − q(b)|` over every behavior value, must be at least 0.3 in at least 8 of 10 matches, for every one of the 28 pairs. Until milestone 2C the rule was that no two bots share a top behavior in more than 2 of 10 matches; `tools/signatures.py` still prints top behaviors and the pairs that share them, as a report line only.
