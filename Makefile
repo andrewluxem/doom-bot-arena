@@ -9,7 +9,7 @@ BUNDLE ?=
 IMAGE ?= doom-bot-arena:vizdoom-1.3.2
 DOCKER_RUN = docker run --rm --platform linux/amd64 -v "$(CURDIR)":/repo $(IMAGE)
 
-.PHONY: test bench bench-smoke bench-controlled bench-spawn match validate image docker-bench docker-match docker-validate
+.PHONY: test bench bench-smoke bench-controlled bench-spawn match validate image docker-test docker-bench docker-match docker-validate
 
 test:
 	$(PYTHON) -m pytest -q tests
@@ -33,6 +33,9 @@ validate:
 
 image:
 	docker build --platform linux/amd64 -f docker/Dockerfile -t $(IMAGE) .
+
+docker-test:
+	$(DOCKER_RUN) make test
 
 docker-bench:
 	$(DOCKER_RUN) make bench SEED=$(SEED)

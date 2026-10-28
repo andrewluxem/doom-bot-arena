@@ -268,7 +268,7 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
 
 | | Linux | Intel mac (pinned Docker image) |
 |---|---|---|
-| Parser unit tests | `make test` | `make test` (in `.venv`) |
+| Parser unit tests | `make test` | `make test` (in `.venv`) or `make docker-test` |
 | Image | | `make image` |
 | Smoke and controlled benches | `make bench` | `make docker-bench` |
 | Spawn-telefrag experiment | `make bench-spawn` | |
