@@ -147,6 +147,13 @@ KRN's item timing after the 2D fix: 18 of 44 pickups of a respawned item within 
 
 Accepted: NUL, ASH and PYR. Behavior distributions: 24 of 28 pairs are at least 0.3 apart in 8 of 10 matches; ASH/VEX (0/10, median 0.15), ORB/ZED (3/10), KRN/PYR (6/10) and PYR/VEX (7/10) are not.
 
+### Milestone 2E: conjunctions, and acceptance on gating signatures
+
+The last signature pass. Three rule changes:
+- **A signature may be a conjunction of up to two metrics.** A sheet item with an `and:` block (its own `metric`, `op`, `value`) passes in a bot-match only when both parts pass; n/a in either part fails. Separation is measured on the conjunction: the roster pass rate on a map is the share of the other seven's bot-matches there passing both parts, each with the bot's threshold and sheet. A roster bot-match with either part n/a is left out. `tools/fit_thresholds.py` fits a conjunction's two thresholds jointly on a grid of observed values.
+- **Acceptance.** A bot is accepted if it has at least one gating signature (`gate: true`, single or conjunction) that it meets in at least 8 of 10 holdout matches, with the roster pass rate at most 20% on each map. The holdout is the only evaluation acceptance is judged on.
+- **Behavior distributions leave acceptance.** The pairwise total variation report (milestone 2D) stays as a report line.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.
@@ -187,7 +194,7 @@ HEX `> 500`, descriptive: most placeholders pass it too.
 ### stationary_share
 Share of the bot's alive tics in the displayed match at which it is within 32 units of where it was 35 tics earlier, in the same life. The first 35 tics of each life cannot qualify. Small strafes around a held spot count as stationary; knockback that moves the bot more than 32 units in a second does not.
 
-HEX `> 0.7`, gating.
+HEX `> 0.7`, gating (`> 0.56` from fit-2d). Milestone 2E candidate: HEX `stationary_share` AND `kills_from_hold_share`, fitted jointly.
 
 ### distance_traveled_rank
 Each bot's distance travelled is the sum of its step lengths in the displayed match. Ranked ascending: 1 = least of the eight.
@@ -278,6 +285,32 @@ A **first contact** is another player coming into the bot's view after at least 
 Share of first contacts the bot does not name as its `target_slot` within the next 35 tics. `n/a` with none; schema 3 only.
 
 PYR `>= 0.5`, descriptive.
+
+### kiting_share
+Share of the bot's engagement tics whose row has `behavior: KITING`. `n/a` with no engagement tics; schema 5 only (earlier bundles have no `KITING`).
+
+ORB gate candidate (milestone 2E).
+
+### engagement_initiations_per_minute
+Engagements the bot starts (each engagement is a run of its own `target_slot`, started at its first tic, as in Common terms) in the displayed match, divided by its alive minutes there. `n/a` with no alive tics.
+
+### engagement_initiations_rank
+`engagement_initiations_per_minute` ranked descending over the eight bots: 1 = most. A bot with `n/a` ranks last.
+
+VEX gate candidate `<= 2`, alone or in conjunction with `median_kill_distance < 160` (milestone 2E).
+
+### behavior_profile_drift
+Split the displayed match into consecutive 20 s windows (700 tics; a last, shorter window is dropped). In each window, take the bot's behavior shares over its alive tics, as in Behavior distribution; a window with fewer than 35 alive tics has none. For each pair of adjacent windows that both have shares, compute the total variation distance between them. The metric is the mean over those pairs; `n/a` with none.
+
+ZED gate candidate (milestone 2E): its dials are re-rolled every 20 s.
+
+### median_health_at_engagement_start
+Median of the bot's `health` at the start tic of each engagement it starts in the displayed match. `n/a` with no engagements.
+
+### health_at_engagement_start_rank
+`median_health_at_engagement_start` ranked descending over the eight bots: 1 = healthiest. A bot with `n/a` ranks last.
+
+KRN gate candidate `<= 2` (milestone 2E).
 
 ## Behavior distribution
 

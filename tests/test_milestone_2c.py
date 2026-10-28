@@ -131,3 +131,31 @@ def test_traffic_leaves_out_standing_still(tmp_path):
     write_bundle(tmp_path / "b" / "one", {1: still, 2: walk})
     tr = traffic.build([str(tmp_path / "b")], {"source": {"map": "MAP10", "iwad_sha256": "abc"}})
     assert tr["samples"] == 35 + 100
+
+
+def beh_rows(seq):
+    return [{"x": 0.0, "y": 0.0, "alive": True, "behavior": b, "health": 100, "armor": 0,
+             "target_slot": None, "angle": 0.0, "damage_taken": 0, "damagecount": 0, "hitcount": 0} for b in seq]
+
+
+def test_behavior_profile_drift_and_engagement_ranks(tmp_path):
+    w = S.DRIFT_WINDOW
+    flip = beh_rows(["ROAMING"] * w + ["HUNTING"] * w + ["ROAMING"] * w)  # TV 1.0 between each pair
+    same = beh_rows(["ROAMING"] * (3 * w))
+    for t in (10, 11, 12, 50, 51):  # two engagements by slot 2, at health 100 and 40
+        same[t]["target_slot"] = 1
+    same[50]["health"] = 40
+    B = S.Bundle(str(write_bundle(tmp_path / "m", {1: flip, 2: same})))
+    assert S.behavior_profile_drift(B, 1, {}) == 1.0 and S.behavior_profile_drift(B, 2, {}) == 0.0
+    assert S.median_health_at_engagement_start(B, 2, {}) == 70
+    assert S.engagement_initiations_rank(B, 2, {}) == 1 and S.engagement_initiations_rank(B, 1, {}) == 2
+    assert S.health_at_engagement_start_rank(B, 1, {}) == 2  # no engagements: n/a ranks last
+    assert S.kiting_share(B, 1, {}) is None
+
+
+def test_kiting_share_counts_engagement_tics_labelled_kiting(tmp_path):
+    rows = beh_rows(["KITING"] * 3 + ["IN_COMBAT"] * 1 + ["ROAMING"] * 6)
+    for t in range(4):
+        rows[t]["target_slot"] = 2
+    B = S.Bundle(str(write_bundle(tmp_path / "k", {1: rows, 2: beh_rows(["ROAMING"] * 10)})))
+    assert S.kiting_share(B, 1, {}) == 0.75

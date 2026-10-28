@@ -170,3 +170,18 @@ def test_median_kill_distance_leaves_out_melee_kills(tmp_path):
     assert S.median_kill_distance(B, 3, {}) == 300.0
     B2 = write_bundle(tmp_path, {3: rows, 2: far}, [dict(kill(5), key="OB_MPFIST")])
     assert S.median_kill_distance(B2, 3, {}) is None
+
+
+def test_conjunction_passes_only_when_both_parts_pass(fake_metric, monkeypatch):
+    monkeypatch.setitem(S.METRICS, "fake2", lambda B, s, sheet: B.values2.get(s))
+    item = {"metric": "fake", "op": "<", "value": 10, "and": {"metric": "fake2", "op": ">", "value": 0.5}}
+    assert S.label(item) == "fake < 10 AND fake2 > 0.5"
+    assert S.item_passes(item, (5, 0.6)) and not S.item_passes(item, (5, 0.4)) and not S.item_passes(item, (5, None))
+    bundles = roster(on_map(fake_bundles([match(5, [5, 5, 5, 20, 20], 5)] * 5), "MAP10"))
+    for B in bundles:
+        B.values2 = {1: 0.9, 2: 0.9, 4: 0.1, 5: 0.1, 6: 0.1, 7: 0.9, 8: 0.9}
+    shs = [{"code": c, "signature": [dict(item, gate=True)] if c == "VEX" else []} for c in ("VEX", "KRN", "ASH", "ORB", "HEX", "PYR", "ZED")]
+    [x] = S.separation_vs_roster(bundles, shs, ["VEX"])
+    r = x["maps"]["MAP10"]["roster"]
+    assert (r["passes"], r["computed"]) == (5, 30)  # only KRN (slot 2) passes both: fake 5 < 10 and 0.9 > 0.5
+    assert x["gates"] and x["accepts"]

@@ -478,13 +478,62 @@ def first_contact_avoidance_share(B, s, sheet):
     return avoided / n if n else None
 
 
+def kiting_share(B, s, sheet):
+    eng = B.engagement_tics(s)
+    return sum(1 for t, _, _ in eng if B.rows[s][t]["behavior"] == "KITING") / len(eng) if eng else None
+
+
+def _alive_minutes(B, s):
+    return sum(1 for t in B.displayed() if B.life[s][t] is not None) / (TICRATE * 60)
+
+
+def engagement_initiations_per_minute(B, s, sheet):
+    minutes = _alive_minutes(B, s)
+    return len(B.engagements(s)) / minutes if minutes else None
+
+
+def _rank_desc(B, s, fn):
+    """Competition rank, descending (1 = largest); n/a ranks last."""
+    v = {k: fn(B, k, None) for k in B.slots}
+    if v[s] is None:
+        return len(B.slots)
+    return 1 + sum(1 for k in B.slots if v[k] is not None and v[k] > v[s])
+
+
+def engagement_initiations_rank(B, s, sheet):
+    return _rank_desc(B, s, engagement_initiations_per_minute)
+
+
+DRIFT_WINDOW = 20 * TICRATE
+
+
+def behavior_profile_drift(B, s, sheet):
+    shares = []
+    for w0 in range(B.f0, B.end - DRIFT_WINDOW + 1, DRIFT_WINDOW):
+        c = Counter(B.rows[s][t]["behavior"] for t in range(w0, w0 + DRIFT_WINDOW) if B.life[s][t] is not None)
+        n = sum(c.values())
+        shares.append({k: v / n for k, v in c.items()} if n >= WINDOW else None)
+    tv = [total_variation(a, b) for a, b in zip(shares, shares[1:]) if a is not None and b is not None]
+    return sum(tv) / len(tv) if tv else None
+
+
+def median_health_at_engagement_start(B, s, sheet):
+    return _median(B.rows[s][start]["health"] for start, _, _ in B.engagements(s))
+
+
+def health_at_engagement_start_rank(B, s, sheet):
+    return _rank_desc(B, s, median_health_at_engagement_start)
+
+
 METRICS = {f.__name__: f for f in (
     median_engagement_distance, median_kill_distance, closing_share, median_first_sight_engagement_distance,
     stationary_share, distance_traveled_rank, frags_within_1500ms_of_visibility_share, kills_from_hold_share,
     engagement_distance_in_band_share, retreat_on_close_share,
     engagements_started_below_50hp_share, item_timing_hit_rate, armor_pickups_rank,
     behavior_switches_per_minute, melee_damage_share, chainsaw_damage_share, approach_outside_view_cone_share,
-    third_party_kill_share, first_contact_avoidance_share)}
+    third_party_kill_share, first_contact_avoidance_share, kiting_share, engagement_initiations_per_minute,
+    engagement_initiations_rank, behavior_profile_drift, median_health_at_engagement_start,
+    health_at_engagement_start_rank)}
 
 
 SHEET_PARAMS = {"engagement_distance_in_band_share": lambda sh: tuple(sh["temperament"]["preferred_range"]),
@@ -509,6 +558,28 @@ def behavior_shares(B, s):
 
 
 # ---------------------------------------------------------------------- report
+def parts(item):
+    """A signature item and, for a conjunction (milestone 2E), its `and` part."""
+    return [item] + ([item["and"]] if item.get("and") else [])
+
+
+def label(item):
+    return " AND ".join(f"{p['metric']} {p['op']} {p['value']}" for p in parts(item))
+
+
+def item_values(B, s, item, sheet):
+    return tuple(value(B, s, p["metric"], sheet) for p in parts(item))
+
+
+def item_passes(item, vals):
+    """Every part passes; n/a in any part fails."""
+    return all(passes(p, v) for p, v in zip(parts(item), vals))
+
+
+def fmt_vals(vals):
+    return "/".join(fmt(v) for v in vals)
+
+
 def passes(item, v):
     return v is not None and OPS[item["op"]](v, item["value"])
 
@@ -521,9 +592,11 @@ def evaluate(B, sheets):
         sheet = by_code[code]
         sig = []
         for item in sheet.get("signature") or []:
-            v = value(B, s, item["metric"], sheet)
-            sig.append({"metric": item["metric"], "value": None if v is None else round(v, 4), "op": item["op"],
-                        "threshold": item["value"], "gate": item.get("gate", True), "pass": passes(item, v)})
+            vals = item_values(B, s, item, sheet)
+            sig.append({"metric": item["metric"], "value": None if vals[0] is None else round(vals[0], 4),
+                        "op": item["op"], "threshold": item["value"], "gate": item.get("gate", True),
+                        "pass": item_passes(item, vals), "label": label(item),
+                        "values": [None if v is None else round(v, 4) for v in vals]})
         gates = [x for x in sig if x["gate"]]
         out["bots"][code] = {
             "slot": s, "controller": B.controller[s],
@@ -570,7 +643,8 @@ def separation(bundles, sheets, codes):
     return out
 
 
-RANK_METRICS = ("distance_traveled_rank", "armor_pickups_rank")
+RANK_METRICS = ("distance_traveled_rank", "armor_pickups_rank", "engagement_initiations_rank",
+                "health_at_engagement_start_rank")
 
 
 def by_map(bundles):
@@ -586,6 +660,12 @@ def roster_values(Bs, code, metric, sheet):
             if B.code[s] != code and B.controller[s] != PLACEHOLDER]
 
 
+def roster_item_values(Bs, code, item, sheet):
+    """Per other personality's slot, the values of every part of the item (a tuple), with `code`'s sheet."""
+    return [item_values(B, s, item, sheet) for B in Bs for s in B.slots
+            if B.code[s] != code and B.controller[s] != PLACEHOLDER]
+
+
 def separation_vs_roster(bundles, sheets, codes):
     """Per bot and signature item: on each map, the bot's values and the other seven personalities' pass rate
     against the same threshold (the roster baseline). A metric separates on a map if at least 80% of the other
@@ -598,20 +678,24 @@ def separation_vs_roster(bundles, sheets, codes):
         sheet = by_code[code]
         for item in sheet.get("signature") or []:
             row = {"bot": code, "metric": item["metric"], "op": item["op"], "threshold": item["value"],
+                   "label": label(item), "conjunction": bool(item.get("and")),
                    "sheet_gate": item.get("gate", True), "rank_metric": item["metric"] in RANK_METRICS, "maps": {}}
             for key, Bs in groups.items():
-                own = [value(B, next(s for s in B.slots if B.code[s] == code), item["metric"], sheet) for B in Bs]
-                rv = roster_values(Bs, code, item["metric"], sheet)
-                computed = [v for v in rv if v is not None]
-                r_pass = sum(passes(item, v) for v in computed)
+                own = [item_values(B, next(s for s in B.slots if B.code[s] == code), item, sheet) for B in Bs]
+                rv = roster_item_values(Bs, code, item, sheet)
+                computed = [v for v in rv if None not in v]
+                r_pass = sum(item_passes(item, v) for v in computed)
                 fail_rate = 1 - r_pass / len(computed) if computed else None
+                first = [v[0] for v in computed]
                 row["maps"][key[0]] = {
-                    "values": [None if v is None else round(v, 4) for v in own],
-                    "seeds": [B.m["seed"] for B in Bs], "passes": sum(passes(item, v) for v in own), "matches": len(own),
+                    "values": [[None if x is None else round(x, 4) for x in v] if row["conjunction"]
+                               else (None if v[0] is None else round(v[0], 4)) for v in own],
+                    "seeds": [B.m["seed"] for B in Bs], "passes": sum(item_passes(item, v) for v in own),
+                    "matches": len(own),
                     "roster": {"computed": len(computed), "na": len(rv) - len(computed), "passes": r_pass,
                                "pass_rate": None if not computed else round(r_pass / len(computed), 4),
-                               "median": _median(computed),
-                               "range": [min(computed), max(computed)] if computed else None},
+                               "median": _median(first),
+                               "range": [min(first), max(first)] if first else None},
                     "separates": fail_rate is not None and fail_rate >= SEPARATION}
             maps = row["maps"].values()
             row["passes"] = sum(m["passes"] for m in maps)
@@ -619,6 +703,7 @@ def separation_vs_roster(bundles, sheets, codes):
             row["separates_on"] = [k for k, m in row["maps"].items() if m["separates"]]
             row["gates"] = (len(row["separates_on"]) == len(row["maps"])
                             and row["passes"] >= SEPARATION * row["matches"])
+            row["accepts"] = row["gates"] and row["sheet_gate"]
             out.append(row)
     return out
 
@@ -681,28 +766,31 @@ def report_vs_roster(sep, matrix, reports, sheets):
           f"{SEPARATION:.0%} of the other seven personalities' bot-matches there fail it; n/a left out)")
     for x in sep:
         status = "GATES" if x["gates"] else "does not gate"
-        print(f"  {x['bot']} {x['metric']} {x['op']} {x['threshold']}  [sheet {'gate' if x['sheet_gate'] else 'desc'}]  "
+        print(f"  {x['bot']} {x['label']}  [sheet {'gate' if x['sheet_gate'] else 'desc'}]  "
               f"met {x['passes']}/{x['matches']}; separates on {', '.join(x['separates_on']) or 'no map'}: {status}")
         for mp, m in x["maps"].items():
             r = m["roster"]
-            print(f"      {mp}: {x['bot']} {', '.join(fmt(v) for v in m['values'])} (pass {m['passes']}/{m['matches']})  "
+            vals = ", ".join(fmt_vals(v) if isinstance(v, list) else fmt(v) for v in m["values"])
+            print(f"      {mp}: {x['bot']} {vals} (pass {m['passes']}/{m['matches']})  "
                   f"roster pass {r['passes']}/{r['computed']}" + (f" ({r['pass_rate']:.0%})" if r["pass_rate"] is not None else "")
                   + (f", n/a {r['na']}" if r["na"] else "")
                   + (f", median {fmt(r['median'])}, range {fmt(r['range'][0])}-{fmt(r['range'][1])}" if r["range"] else ""))
-    print("== acceptance: bots with at least one metric that separates on every map and is met in "
-          f"{SEPARATION:.0%} of matches")
+    print("== acceptance (milestone 2E): a gating signature met in "
+          f"{SEPARATION:.0%} of matches, roster pass at most {1 - SEPARATION:.0%} on each map")
     for sh in sheets:
         rows = [x for x in sep if x["bot"] == sh["code"]]
-        ok = [x["metric"] for x in rows if x["gates"]]
-        print(f"  {sh['code']}: " + (f"ACCEPTED by {', '.join(ok)}" if ok else "not accepted"))
+        ok = [x["label"] for x in rows if x["accepts"]]
+        also = [x["label"] for x in rows if x["gates"] and not x["sheet_gate"]]
+        print(f"  {sh['code']}: " + (f"ACCEPTED by {'; '.join(ok)}" if ok else "not accepted")
+              + (f"  (descriptive items that would gate: {'; '.join(also)})" if also else ""))
     dist = behavior_distances(reports)
-    print(f"== behavior distributions: every pair must be at least {MIN_TV} apart in total variation in "
-          f"{SEPARATION:.0%} of matches")
+    print(f"== behavior distributions (report only since milestone 2E): pairs at least {MIN_TV} apart in total "
+          f"variation, out of the matches")
     for pair, x in sorted(dist.items(), key=lambda kv: kv[1]["far"]):
-        print(f"  {pair}: {x['far']}/{x['matches']}{'' if x['ok'] else '  UNDER'}  min {min(x['tv']):.2f}  "
+        print(f"  {pair}: {x['far']}/{x['matches']}{'' if x['ok'] else '  under 80%'}  min {min(x['tv']):.2f}  "
               f"median {_median(x['tv']):.2f}")
     bad = [p for p, x in dist.items() if not x["ok"]]
-    print(f"  {'all pairs apart' if not bad else f'{len(bad)} pair(s) under: ' + ', '.join(bad)}")
+    print(f"  {'all pairs apart in 80% of matches' if not bad else f'{len(bad)} pair(s) apart in under 80%: ' + ', '.join(bad)}")
     tops, pairs = shared_tops(reports)
     print("== top behavior per bot per match (report only; not part of acceptance since milestone 2D)")
     for bundle, t in tops.items():
@@ -740,7 +828,8 @@ def main(argv=None):
                 b = rep["bots"][code]
                 top = next(iter(b["behavior_shares"]), None)
                 print(f"  {code} frags {b['frags']} deaths {b['deaths']}  top {top} {b['behavior_shares'].get(top, 0):.2f}  "
-                      + "  ".join(f"{x['metric']} {fmt(x['value'])}{'' if x['pass'] else ' (fails)'}" for x in b["signature"]))
+                      + "  ".join(f"{x['label'] if len(x['values']) > 1 else x['metric']} "
+                           f"{fmt_vals(x['values'])}{'' if x['pass'] else ' (fails)'}" for x in b["signature"]))
         sep = separation_vs_roster(bundles, sheets, codes)
         matrix = metric_matrix(bundles, sheets)
         report_vs_roster(sep, matrix, reports, [sh for sh in sheets if sh["code"] in codes])
