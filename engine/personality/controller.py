@@ -208,6 +208,9 @@ class PersonalityBot:
                 n = it["node"]
                 it["z"] = self.graph.floor[self.graph.nodes[n][2]] if n is not None else 0.0
         self.wait_item = None  # the item a timing bot is waiting at for its respawn
+        self.lures = [it for it in self.items if it["class"] in LURE_CLASSES
+                      and self.d.item_weights.get(it["class"], 0.0) >= LURE_WEIGHT]
+        self.timed_looked = -10 ** 9  # last decision an item-timing bot looked for a timed item and found none
         self.exits = []  # (line id, approach point, midpoint) of every exit switch line
         for l in map_data["linedefs"]:
             if l.get("exit") and l["special"] in (11, 51):  # S1 exit, S1 secret exit: used, not walked over
@@ -512,7 +515,7 @@ class PersonalityBot:
         if not self.perc.visible() and t - self.spawned_at > TRAPPED_WAIT:
             goal, tag = self._exit_goal(t, x, y)  # a pocket it cannot leave: nothing else there matters
         if goal is None and b not in ("IN_COMBAT", "FLEEING") and not armed:
-            goal, tag = self._weapon_goal(t, x, y)
+            goal, tag = (self.goal, "weapon") if self._weapon_goal_held(t) else self._weapon_goal(t, x, y)
         if goal is None and b not in ("IN_COMBAT", "FLEEING") and usable and self._ammo_low(v, usable):
             goal, tag = self._item_goal(t, x, y, names=set(sum((AMMO_ITEMS.get(w, ()) for w in usable), ())) | {"Backpack"})
         if goal is None and b in ("ROAMING", "HUNTING") and (b == "ROAMING" or latest is None
@@ -576,6 +579,8 @@ class PersonalityBot:
         GOAL_TIMEOUT, then draws a new one."""
         held_best = max((self.d.weapon_weights.get(w, 0) for w in self.armory.owned if w in self.resolved), default=0.0)
         if held_best < self.best_weight:
+            if self._weapon_goal_held(t):
+                return self.goal, "weapon"
             goal, upgrade = self._weapon_goal(t, x, y, better_than=held_best)  # a better weapon first
             if goal is not None:
                 return goal, upgrade
@@ -583,12 +588,21 @@ class PersonalityBot:
             held = self._item_at(self.goal) if self.goal_tag == "item:timed" else None
             if held is not None and pending(held, t) and t - self.goal_set_at < GOAL_TIMEOUT + TIMED_WAIT_MAX:
                 return self.goal, "item:timed"  # keep the item being timed until it is back
-            goal, timed = self._timed_item_goal(t, x, y)
-            if goal is not None:
-                return goal, timed
+            if t - self.timed_looked >= TICRATE:
+                goal, timed = self._timed_item_goal(t, x, y)
+                if goal is not None:
+                    return goal, timed
+                self.timed_looked = t
         if self.goal_tag == tag and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
             return self.goal, tag
         return self._random_attractor(t, x, y), tag
+
+    def _weapon_goal_held(self, t):
+        """Keep heading for the weapon already chosen while it is still not owned (saves a path search a decision)."""
+        if self.goal_tag != "weapon" or self.goal is None or t - self.goal_set_at >= GOAL_TIMEOUT or self.goal_unreachable:
+            return False
+        name = next((n for n, wx, wy, _ in self.weapon_things if wx == self.goal[0] and wy == self.goal[1]), None)
+        return name is not None and name not in self.armory.owned
 
     def _weapon_goal(self, t, x, y, better_than=None):
         """The nearest reachable weapon the bot wants: one its sheet rates at least half its best, or with
@@ -649,12 +663,12 @@ class PersonalityBot:
     def _lure_goal(self, t, x, y):
         """A berserk pack (LURE_CLASSES) the sheet weights at LURE_WEIGHT or more, while the bot lacks it.
         Arriving where one should be without picking it up shows it is gone: it is back within 30 s."""
+        if self.berserk or not any(it["back"] <= t for it in self.lures):
+            return None, None  # nothing to lure it: skip the path search
         reach = self._reach(t, x, y)
         best = None
-        for it in self.items:
-            if it["class"] not in LURE_CLASSES or self.d.item_weights.get(it["class"], 0.0) < LURE_WEIGHT:
-                continue
-            if self.berserk or it["back"] > t or it["node"] not in reach:
+        for it in self.lures:
+            if it["back"] > t or it["node"] not in reach:
                 continue
             if math.hypot(it["x"] - x, it["y"] - y) < 12:
                 it["back"] = max(it["back"], t + ITEM_RESPAWN // 2)
