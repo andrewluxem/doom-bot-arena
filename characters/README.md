@@ -17,7 +17,8 @@ One YAML file per bot. The engine loads all eight; a personality is only these d
   - `item_timing: true` means the bot tracks respawn timers and routes to items as they reappear.
     - It times the items it picks up itself.
     - It also times items it sees vanish: a place in its view and line of sight where the item's label is missing.
-    - Item goals count items due back by the time it arrives. Roaming, it heads for the timed item it can reach nearest its respawn, and it waits on the spot until the item reappears.
+    - Item goals count items due back by the time it arrives. In every behavior but `IN_COMBAT` and `FLEEING` (milestone 2D: not only roaming), it heads for the timed item it can reach nearest its respawn, ahead of standing items, and waits on the spot until the item reappears.
+    - It times only items it could pick up now: health or armor under the item's cap (100 for a Stimpack, Medikit or GreenArmor, 200 for a Soulsphere or BlueArmor). It re-ranks them once a second and leaves the one it is heading for only for one worth 1.5 times more, never while waiting on the spot.
 - `reroll_interval_s`, `reroll_seed_from_match`, `ranges`: dial re-rolls, or `null`, `false`, `null`.
   - Every `reroll_interval_s` of match time, each dial under `ranges` (a dotted path such as `temperament.aggression`, with `[low, high]`) is drawn again, uniformly.
   - With `reroll_seed_from_match: true` the draw is seeded from the match seed, the slot and the interval's index, so a replay draws the same values at the same times.
