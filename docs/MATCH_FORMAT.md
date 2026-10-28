@@ -1,6 +1,6 @@
 # Match bundle format
 
-**schema_version 3.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
+**schema_version 4.** One bundle = one match: eight bots, one map, one seed, fixed duration. Written by `engine/runner.py`, checked by `engine/validate_bundle.py`.
 
 ```
 bundles/<id>/
@@ -12,7 +12,7 @@ bundles/<id>/
   pov/slot1.mp4 … pov/slot8.mp4
 ```
 
-Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. Schema 3 adds the damage counters `hitcount`, `damagecount` and `damage_taken` to every row. The validator still accepts schema 1 and 2 bundles, such as the viewer's samples.
+Schema 2 (milestone 2A) adds `weapon_name`, `target_slot` and `sector` to every `tics.jsonl` row, `spots.json`, and per-bot `controller` and `weapons_resolved` in `match.json`. Schema 3 adds the damage counters `hitcount`, `damagecount` and `damage_taken` to every row. Schema 4 (milestone 2B) adds `attack`, the bot's own ATTACK input. The validator still accepts schema 1 to 3 bundles, such as the viewer's samples.
 
 `id` = `<UTC yyyymmddThhmmssZ>-<map>-s<seed>`, e.g. `20261028T041144Z-MAP01-s1234`.
 
@@ -195,6 +195,7 @@ NUL has just picked up the rocket launcher and selected it; the engine still hol
 | `hitcount` | `HITCOUNT` | schema 3. Hits this player has landed on other players and on barrels since the match began |
 | `damagecount` | `DAMAGECOUNT` | schema 3. Damage this player has dealt to other players and to barrels since the match began |
 | `damage_taken` | `DAMAGE_TAKEN` | schema 3. Damage this player has taken since the match began, from anyone: other players, its own splash, the world |
+| `attack` | controller | schema 4. `true` if the process sent ATTACK in the action chosen from this state, which the engine applies during tic `t + 1` (section 3). Always `false` on a dead row and on the last tic, which sends no action. It is the bot's own input, not a confirmed shot: the engine fires only if the weapon is ready and has ammo |
 
 Each process writes only its own slot's rows.
 
@@ -231,7 +232,7 @@ Each process writes only its own slot's rows.
 | `respawn` | slot | `null` | `null` | `tics.jsonl`, `alive` false→true; `source` is `"tics.jsonl:alive false->true"` |
 
 **Deferred, not captured in schema 1:**
-- **Shots:** an `ATTACK` input is not a confirmed shot.
+- **Shots:** an `ATTACK` input is not a confirmed shot. Schema 4 records the input per tic (`tics.jsonl` `attack`), not the shot.
 - **Hits:** `HITCOUNT`/`DAMAGECOUNT` are counters with no target.
 - **Pickups:** pickup messages ("Got the minigun!") appear only in the picking player's own notifications buffer. That is a candidate source, not validated.
 
@@ -329,6 +330,7 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
   - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point, except within 1.5 units of a sector boundary (the validator prints how many such rows it allowed).
   - The scoreboard is off for every slot, every bot has a `controller` and `weapons_resolved`, and `spots.json` candidates and chosen spots are well formed.
 - **Schema 3 fields.** The damage counters are non-negative integers that never fall. Dealt and taken are not checked against each other: barrel damage is dealt and never taken, and own splash is taken and never dealt (section 5).
+- **Schema 4 field.** `attack` is a bool, `false` on every dead row and on the last tic.
 - **Events.** Every death event's `source` re-parses to the same event. Event counts match.
 - **Pairing.**
   - Every `alive` true→false in a slot's rows has exactly one death event for that slot at that tic.

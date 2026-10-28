@@ -155,6 +155,22 @@ def check_rows(rows, n_tics, m=None, map_data=None):
         p += check_rows_v2(rows, m, map_data)
     if version >= 3 and not p:
         p += check_rows_v3(rows)
+    if version >= 4 and not p:
+        p += check_rows_v4(rows, n_tics)
+    return p
+
+
+def check_rows_v4(rows, n_tics):
+    """attack (section 5): a bool, the ATTACK input sent for the next tic; never on a dead row or the last tic."""
+    p = []
+    for r in rows:
+        a = r["attack"]
+        if not isinstance(a, bool):
+            p.append(f"tic {r['tic']} slot {r['slot']}: attack {a!r} is not a bool")
+        elif a and not r["alive"]:
+            p.append(f"tic {r['tic']} slot {r['slot']}: attack on a dead row")
+        elif a and r["tic"] == n_tics - 1:
+            p.append(f"tic {r['tic']} slot {r['slot']}: attack on the last tic, which sends no action")
     return p
 
 

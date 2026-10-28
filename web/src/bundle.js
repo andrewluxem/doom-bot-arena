@@ -62,7 +62,7 @@ export async function loadBundle(base) {
   const [match, map, ticsText, eventsText] = await Promise.all([
     get(url('match.json'), 'json'), get(url('map.json'), 'json'), get(url('tics.jsonl')), get(url('events.jsonl')),
   ]);
-  if (![1, 2, 3].includes(match.schema_version)) throw new Error(`schema_version ${match.schema_version} is not supported`);
+  if (![1, 2, 3, 4].includes(match.schema_version)) throw new Error(`schema_version ${match.schema_version} is not supported`);
   const spots = match.schema_version >= 2 ? await get(url('spots.json'), 'json') : null;
   const f0 = match.frame0_tic, n = match.duration_tics, total = f0 + n, rate = match.ticrate;
   const respawnAfter = rate * match.respawn_delay_s + 1; // a death at tic d respawns at d + 35·delay + 1
