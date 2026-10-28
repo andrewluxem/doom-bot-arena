@@ -34,7 +34,7 @@ DISK_CHECK = avail=$$(df -Pk . | awk 'NR==2 {print int($$4 / 1048576)}'); \
 	if [ "$$avail" -lt $(MIN_FREE_GB) ]; then echo "refusing to start: $$avail GB free, under $(MIN_FREE_GB) GB"; exit 1; fi; \
 	echo "disk: $$avail GB free"
 
-.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b traffic-2c eval-2c signatures-2c signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b docker-traffic-2c docker-eval-2c docker-signatures-2c
+.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b traffic-2c eval-2c signatures-2c fit-2d signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b docker-traffic-2c docker-eval-2c docker-signatures-2c docker-fit-2d
 
 test:
 	$(PYTHON) -m pytest -q tests
@@ -111,6 +111,11 @@ signatures-2c:
 	$(PYTHON) tools/signatures.py --json $(EVAL2C_OUT)/signatures.json $(EVAL2C_OUT)/*/2*
 	$(PYTHON) tools/hold_contact.py --bots NUL,HEX --json $(EVAL2C_OUT)/hold_contact.json $(EVAL2C_OUT)/*/2*
 
+# Milestone 2D: fit every gating threshold to FIT_ON against the roster; --write applies separating fits to the sheets.
+FIT_ON ?= bundles/eval-2c
+fit-2d:
+	$(PYTHON) tools/fit_thresholds.py --json $(FIT_ON)/fit-2d.json --run fit-2d --source $(notdir $(FIT_ON)) $(FIT_ARGS) $(FIT_ON)/*/2*
+
 signatures:
 	$(PYTHON) tools/signatures.py --bots $(BOTS) $(BUNDLE)
 
@@ -143,6 +148,9 @@ docker-eval-2c:
 
 docker-signatures-2c:
 	$(DOCKER_RUN) make signatures-2c EVAL2C_OUT=$(EVAL2C_OUT)
+
+docker-fit-2d:
+	$(DOCKER_RUN) make fit-2d FIT_ON=$(FIT_ON) FIT_ARGS="$(FIT_ARGS)"
 
 docker-eval-2b:
 	$(DOCKER_RUN) make eval-2b EVAL2B_MAPS="$(EVAL2B_MAPS)" EVAL2B_SEEDS="$(EVAL2B_SEEDS)" EVAL2B_OUT=$(EVAL2B_OUT) BASE_OUT=$(BASE_OUT)

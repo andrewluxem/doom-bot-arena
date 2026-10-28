@@ -51,5 +51,5 @@ signature:
     gate: true
   - metric: first_contact_avoidance_share   # fresh enemies in view it does not take on
     op: ">="
-    value: 0.5
+    value: 0.6   # fit-2d: fitted on eval-2c (tools/fit_thresholds.py); was 0.5
     gate: true   # milestone 2D: separates against the roster (2C: 10/10, the other seven 0-3%)

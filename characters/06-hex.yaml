@@ -50,7 +50,7 @@ spots:
 signature:
   - metric: stationary_share
     op: ">"
-    value: 0.7
+    value: 0.56   # fit-2d: fitted on eval-2c (tools/fit_thresholds.py); was 0.7
     gate: true
   - metric: median_first_sight_engagement_distance
     op: ">"

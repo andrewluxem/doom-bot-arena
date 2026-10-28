@@ -55,9 +55,9 @@ signature:
     gate: false   # placeholders pass it too (docs/SIGNATURES.md, separation)
   - metric: distance_traveled_rank   # 1 = least of the 8
     op: "<="
-    value: 2
+    value: 2   # fit-2d: fitted on eval-2c (tools/fit_thresholds.py); was 2
     gate: true   # milestone 2D: separates against the roster (2C: 10/10, the other seven 14% on each map)
   - metric: kills_from_hold_share   # kills after 70+ tics within 16 units of the kill spot
     op: ">="
-    value: 0.5
+    value: 0.3   # fit-2d: fitted on eval-2c (tools/fit_thresholds.py); was 0.5
     gate: true   # separates on both 2B maps; placeholders 0/67

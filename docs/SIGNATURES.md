@@ -105,6 +105,27 @@ Applied to the 2C evaluation (`make docker-eval-2c`): five matches per map at se
 
 Under the sheets' gate flags only ASH is accepted. Two descriptive metrics would qualify as gates under the roster rule: NUL's `distance_traveled_rank` and PYR's `first_contact_avoidance_share`. The sheets keep the flags milestone 2C set; changing them is a decision for the next milestone.
 
+### Milestone 2D: thresholds fitted to the 2C evaluation
+
+`tools/fit_thresholds.py` (`make docker-fit-2d`) fits every gating item with an inequality op to an evaluation. With the op kept, the threshold maximizes the bot's pass rate over its matches (n/a fails), subject to at most 20% of the other seven's bot-matches passing on each map (n/a left out), with the bot's sheet. Ties go to the lowest worst-map pass rate of the others, then to the value nearest the sheet's. The threshold then moves to the roundest number between the neighbouring observed values, so no outcome changes. A fit is written to the sheet only if, on each map, the bot passes more often than the others; the sheet comment names the run (`fit-2d`).
+
+Fit run `fit-2d` on eval-2c (MAP10 and E1M5, seeds 401–405; VEX's kill distance over ranged kills only):
+
+| bot | metric | 2C threshold: bot, others E1M5 / MAP10 | fitted: bot, others E1M5 / MAP10 | written |
+|---|---|---|---|---|
+| VEX | `median_kill_distance <` | 140: 6/10, 23% / 30% | 104: 2/10, 7% / 17% | yes |
+| KRN | `item_timing_hit_rate >` | 0.5: 0/10, 17% / 0% | 1.0: 0/10, 0% / 0% | no: KRN never passes |
+| NUL | `distance_traveled_rank <=` | 2: 10/10, 14% / 14% | 2: 10/10, 14% / 14% | yes (unchanged) |
+| NUL | `kills_from_hold_share >=` | 0.5: 3/10, 9% / 3% | 0.3: 4/10, 11% / 9% | yes |
+| ASH | `melee_damage_share ==` | 1.0: 10/10, 0% / 0% | not fitted (equality) | — |
+| ORB | `engagement_distance_in_band_share >` | 0.6: 1/10, 3% / 0% | 0.365: 8/10, 9% / 17% | yes |
+| HEX | `stationary_share >` | 0.7: 5/10, 14% / 3% | 0.56: 10/10, 17% / 11% | yes |
+| PYR | `third_party_kill_share >=` | 0.6: 2/10, 6% / 6% | 0.7: 2/10, 3% / 0% | no: 0/5 on MAP10 |
+| PYR | `first_contact_avoidance_share >=` | 0.5: 10/10, 3% / 0% | 0.6: 10/10, 0% / 0% | yes |
+| ZED | `behavior_switches_per_minute >` | 6: 10/10, 63% / 66% | 17.6: 3/10, 20% / 11% | no: 0/5 on MAP10 |
+
+Fitted on the same matches they are scored on, these are optimistic; the 2D holdout (seeds 501–505) is the test.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.
