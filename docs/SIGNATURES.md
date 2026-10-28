@@ -82,6 +82,29 @@ From milestone 2C the placeholder baseline no longer decides gating; `make docke
 - Rank metrics can separate now: in a match where the bot holds rank 1 or 2, the other seven fill at least one more rank `<= 2`, so about 1 in 7 roster bot-matches pass.
 - `tools/signatures.py` applies this rule whenever every bot in the bundles is a personality (`make signatures-2c`). It prints every metric for all eight bots against the other seven's median and range, and the pairs of bots that share a top behavior.
 
+Applied to the 2C evaluation (`make docker-eval-2c`): five matches per map at seeds 401–405, spots scored by the traffic of two placeholder matches per map (seeds 211, 212). Roster pass is how many of the other seven personalities' bot-matches pass the bot's threshold (n/a left out).
+
+| bot | metric | role | met E1M5 + MAP10 | roster pass E1M5 | roster pass MAP10 | gates |
+|---|---|---|---|---|---|---|
+| VEX | `median_kill_distance < 140` | gate | 2 + 4 = 6/10 | 12/35 | 14/35 | no (separates on neither) |
+| VEX | `closing_share > 0.6` | descriptive | 5 + 5 | 21/29 | 7/31 | no |
+| KRN | `item_timing_hit_rate > 0.5` | gate | 0 + 0 = 0/10 (n/a in 3 E1M5 matches) | 1/6 | 0/19 | no (KRN fails it) |
+| KRN | `engagements_started_below_50hp_share < 0.1` | descriptive | 1 + 4 | 6/35 | 7/35 | no (met 5/10) |
+| NUL | `kills_from_hold_share >= 0.5` | gate | 2 + 1 = 3/10 | 3/35 | 1/35 | no (NUL fails it) |
+| NUL | `distance_traveled_rank <= 2` | descriptive | 5 + 5 = 10/10 | 5/35 | 5/35 | would gate |
+| NUL | `frags_within_1500ms_of_visibility_share >= 0.5` | descriptive | 5 + 5 | 25/35 | 30/35 | no |
+| ASH | `melee_damage_share == 1.0` | gate | 5 + 5 = 10/10 | 0/35 | 0/35 | **yes** |
+| ORB | `engagement_distance_in_band_share > 0.6` | gate | 1 + 0 = 1/10 | 1/35 | 0/35 | no (ORB fails it) |
+| ORB | `retreat_on_close_share > 0.7` | descriptive | 0 + 0 | 0/34 | 0/35 | no |
+| HEX | `stationary_share > 0.7` | gate | 3 + 2 = 5/10 | 5/35 | 1/35 | no (met 5/10) |
+| HEX | `median_first_sight_engagement_distance > 500` | descriptive | 5 + 3 | 23/35 | 3/35 | no |
+| PYR | `third_party_kill_share >= 0.6` | gate | 2 + 0 = 2/10 | 2/35 | 2/35 | no (PYR fails it) |
+| PYR | `first_contact_avoidance_share >= 0.5` | descriptive | 5 + 5 = 10/10 | 1/35 | 0/35 | would gate |
+| ZED | `behavior_switches_per_minute > 6` | gate | 5 + 5 = 10/10 | 22/35 | 23/35 | no (the roster passes it too) |
+| ZED | `chainsaw_damage_share > 0.4` | descriptive | 0 + 0 | 1/35 | 4/35 | no |
+
+Under the sheets' gate flags only ASH is accepted. Two descriptive metrics would qualify as gates under the roster rule: NUL's `distance_traveled_rank` and PYR's `first_contact_avoidance_share`. The sheets keep the flags milestone 2C set; changing them is a decision for the next milestone.
+
 ## Common terms
 
 - **Displayed match.** Tics `frame0_tic … frame0_tic + duration_tics − 1`. Pre-roll tics and events are left out, as they are for the score.
