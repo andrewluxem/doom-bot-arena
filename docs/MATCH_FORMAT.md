@@ -337,7 +337,9 @@ The runner applies these before writing the bundle (exit 4 and no bundle if any 
 - **Schema 2 fields.**
   - `weapon_name` is a weapon name or `null`, and for a bot with `weapons_resolved` one of those.
   - `target_slot` is `null` or another slot, only on alive rows, and that slot was alive at some tic in the last 35.
-  - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point, except within 1.5 units of a sector boundary (the validator prints how many such rows it allowed).
+  - `sector` is a `map.json` sector index. It is re-derived from `x`, `y` and the `map.json` sector polygons and must contain the point. Two exceptions are allowed, and the validator prints how many rows each covers:
+    - the point lies within 1.5 units of a sector boundary;
+    - the recorded sector and the one containing the point share a line within 16 units of it. The engine places a player through the map's BSP, whose splits can sit off the polygons. Freedoom2 MAP10 reports sector 35 up to 15.6 units inside its neighbour 218 (3 positions in the 2B baseline).
   - The scoreboard is off for every slot, every bot has a `controller` and `weapons_resolved`, and `spots.json` candidates and chosen spots are well formed.
 - **Schema 3 fields.** The damage counters are non-negative integers that never fall. Dealt and taken are not checked against each other: barrel damage is dealt and never taken, and own splash is taken and never dealt (section 5).
 - **Schema 4 field.** `attack` is a bool, `false` on every dead row and on the last tic.

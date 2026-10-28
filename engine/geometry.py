@@ -136,6 +136,14 @@ class MapGeometry:
         return min(found, key=lambda s: (self._sector_box[s][2] - self._sector_box[s][0]) *
                    (self._sector_box[s][3] - self._sector_box[s][1]))
 
+    def near_shared_line(self, x, y, a, b, tol):
+        """Is (x, y) within tol of a line with sector a on one side and b on the other?"""
+        for l in self.lines:
+            if {l["front_sector"], l["back_sector"]} == {a, b} and \
+                    dist_point_segment((x, y), (l["x1"], l["y1"]), (l["x2"], l["y2"])) <= tol:
+                return True
+        return False
+
     def near_sector_boundary(self, x, y, tol=1.5):
         for s in self._sector_grid.query_point(x, y):
             for a, b in self._sector_lines[s]:

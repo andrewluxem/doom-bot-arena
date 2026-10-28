@@ -30,3 +30,14 @@ def test_window_narrows_with_heights():
     assert not corridor(mid_ceil=30).clear(50, 0, 41, 250, 0, 0, 56)
     # live heights override the map: the door opens
     assert corridor(mid_ceil=0).clear(50, 0, 41, 250, 0, 0, 56, live={1: (0, 128)})
+
+
+def test_near_shared_line():
+    from engine.geometry import MapGeometry
+    lines = [{"x1": 100, "y1": -50, "x2": 100, "y2": 50, "front_sector": 0, "back_sector": 1},
+             {"x1": 200, "y1": -50, "x2": 200, "y2": 50, "front_sector": 1, "back_sector": 2}]
+    geo = MapGeometry({"bounds": {"min_x": 0, "min_y": -60, "max_x": 300, "max_y": 60}, "sectors": [{}, {}, {}],
+                       "linedefs": lines})
+    assert geo.near_shared_line(110, 0, 0, 1, 16) and geo.near_shared_line(110, 0, 1, 0, 16)
+    assert not geo.near_shared_line(120, 0, 0, 1, 16)
+    assert not geo.near_shared_line(110, 0, 0, 2, 16)  # 0 and 2 share no line
