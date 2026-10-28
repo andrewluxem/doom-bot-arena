@@ -28,9 +28,9 @@ A pickup's reach is the number of deathmatch starts from which a player can get 
 
 Weapons: CG chaingun, saw chainsaw, SG shotgun, SSG super shotgun, RL rocket launcher. Timed items are stimpacks, medikits, soulspheres, green and blue armor, and megaspheres.
 
-## Recommendation
+## Decision
 
-**freedoom2 MAP10 and freedoom1 E1M5.**
+**freedoom2 MAP10 and freedoom1 E1M5**, recommended below and confirmed for 2B on 2026-10-28. **E1M1 is a candidate third map** for ASH's berserk (see the end of this section).
 - **Spawns.** Both have at least 9 deathmatch starts for 8 players (MAP01 has 10).
 - **Chainsaw.** Both have a chainsaw reachable without a lift from 7 starts, which ASH (fist and chainsaw only) and ZED's `chainsaw_damage_share` need. MAP01's only chainsaw is in a lift-only pocket.
 - **Weapons.** Both have the plasma rifle ORB prefers, the rocket launcher KRN and NUL prefer, and HEX's chaingun.
@@ -38,4 +38,4 @@ Weapons: CG chaingun, saw chainsaw, SG shotgun, SSG super shotgun, RL rocket lau
   - MAP10 has every Doom II weapon including the super shotgun, 30 timed items (KRN's `item_timing_hit_rate`) and a megasphere.
   - E1M5 is a Doom 1 map with no super shotgun, so VEX and PYR resolve to the shotgun. Its 47 armor items suit PYR's `armor_pickups_rank`.
 
-**What neither has:** a berserk pack reachable without a lift. If ASH's berserk behaviour matters for 2B, E1M1 (8 starts, berserk from 4) is the alternative to E1M5, but its chainsaw is reachable from none.
+**What neither has:** a berserk pack reachable without a lift. E1M1 (8 starts, berserk reachable from 4) is the candidate third map for ASH's berserk, alongside MAP10 and E1M5 rather than replacing either: its chainsaw is reachable from none. No matches have been run on any of the three.
