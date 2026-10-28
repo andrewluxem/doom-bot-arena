@@ -3,7 +3,8 @@
     python3 tools/blind_clips.py bundles/eval-2a/2* --bots VEX,HEX,NUL --per-bot 2 --seconds 30 \\
         --out out/blind-2a --seed 2
 
-For each bot, clips come from different bundles where possible. A window qualifies if
+For each bot, clips come from different bundles where possible. With --per-map, each bot gets
+exactly one clip from each map among the bundles (milestone 2B: one per bot per map). A window qualifies if
 it lies in the displayed match, the bot is alive for at least 90% of it, and it holds at
 least one of the bot's engagement tics (target_slot set), so there is something to judge.
 Among qualifying windows on a 1 s grid, one is drawn per bundle with a seeded RNG. The
@@ -67,6 +68,7 @@ def main(argv=None):
     ap.add_argument("bundles", nargs="+")
     ap.add_argument("--bots", default="VEX,HEX,NUL")
     ap.add_argument("--per-bot", type=int, default=2)
+    ap.add_argument("--per-map", action="store_true", help="one clip per bot from each map (ignores --per-bot)")
     ap.add_argument("--seconds", type=int, default=30)
     ap.add_argument("--out", default="out/blind-2a")
     ap.add_argument("--seed", type=int, default=2)
@@ -74,22 +76,29 @@ def main(argv=None):
     rng = random.Random(args.seed)
     frames = args.seconds * TICRATE
     bundles = sorted(b for b in args.bundles if os.path.isfile(os.path.join(b, "match.json")))
+    groups = {}
+    for b in bundles:
+        with open(os.path.join(b, "match.json")) as f:
+            groups.setdefault(json.load(f)["map"] if args.per_map else "all", []).append(b)
     picks = []
     for code in [c.strip().upper() for c in args.bots.split(",")]:
-        order = bundles[:]
-        rng.shuffle(order)
-        chosen = []
-        for b in order:
-            m, slot, wins = windows(b, code, frames)
-            if wins:
-                chosen.append({"bot": code, "bundle": b, "match_id": m["id"], "seed": m["seed"], "slot": slot,
-                               "start_tic": rng.choice(wins), "frame0_tic": m["frame0_tic"], "qualifying_windows": len(wins)})
-            if len(chosen) == args.per_bot:
-                break
-        if len(chosen) < args.per_bot:
-            print(f"blind_clips: only {len(chosen)} qualifying windows for {code}", file=sys.stderr)
-            return 1
-        picks += chosen
+        for group in sorted(groups):
+            want = 1 if args.per_map else args.per_bot
+            order = groups[group][:]
+            rng.shuffle(order)
+            chosen = []
+            for b in order:
+                m, slot, wins = windows(b, code, frames)
+                if wins:
+                    chosen.append({"bot": code, "bundle": b, "match_id": m["id"], "map": m["map"], "seed": m["seed"],
+                                   "slot": slot, "start_tic": rng.choice(wins), "frame0_tic": m["frame0_tic"],
+                                   "qualifying_windows": len(wins)})
+                if len(chosen) == want:
+                    break
+            if len(chosen) < want:
+                print(f"blind_clips: only {len(chosen)} qualifying windows for {code} ({group})", file=sys.stderr)
+                return 1
+            picks += chosen
     rng.shuffle(picks)
 
     clips_dir, key_dir = os.path.join(args.out, "clips"), os.path.join(args.out, "key")
@@ -105,7 +114,7 @@ def main(argv=None):
         if got != frames:
             print(f"blind_clips: {name} has {got} frames, expected {frames}", file=sys.stderr)
             return 1
-        key.append({"clip": name, "bot": p["bot"], "match_id": p["match_id"], "seed": p["seed"], "slot": p["slot"],
+        key.append({"clip": name, "bot": p["bot"], "match_id": p["match_id"], "map": p["map"], "seed": p["seed"], "slot": p["slot"],
                     "start_tic": p["start_tic"], "end_tic": p["start_tic"] + frames - 1,
                     "video_frames": [first, first + frames - 1],
                     "match_clock": [round((p["start_tic"] - p["frame0_tic"]) / TICRATE, 2),
@@ -116,9 +125,9 @@ def main(argv=None):
     with open(os.path.join(key_dir, "answer_key.json"), "w") as f:
         json.dump(meta, f, indent=1)
     with open(os.path.join(key_dir, "answer_key.md"), "w") as f:
-        f.write("# Blind test answer key\n\nDo not share with participants.\n\n| clip | bot | match | slot | match clock |\n|---|---|---|---|---|\n")
+        f.write("# Blind test answer key\n\nDo not share with participants.\n\n| clip | bot | map | match | slot | match clock |\n|---|---|---|---|---|---|\n")
         for k in key:
-            f.write(f"| {k['clip']} | {k['bot']} | {k['match_id']} | {k['slot']} | "
+            f.write(f"| {k['clip']} | {k['bot']} | {k['map']} | {k['match_id']} | {k['slot']} | "
                     f"{k['match_clock'][0]:.0f}–{k['match_clock'][1]:.0f} s |\n")
     print(f"wrote {len(key)} clips to {clips_dir} and the key to {key_dir}")
     return 0
