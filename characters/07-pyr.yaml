@@ -30,7 +30,7 @@ behavior_weights:
   ROAMING: 0.5
   STALKING: 0.2
   HOLDING_ANGLE: 0.0
-  COLLECTING_ARMOR: 1.0
+  COLLECTING_ARMOR: 0.5   # 1.0 as the flanker, whose signature was armor pickups
   COLLECTING_HEALTH: 0.5
   FLEEING: 0.4
 
