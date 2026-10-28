@@ -37,7 +37,7 @@ spots: null
 signature:
   - metric: median_kill_distance
     op: "<"
-    value: 160
+    value: 140
     gate: true
   - metric: closing_share   # share of IN_COMBAT tics where the distance to target_slot fell
     op: ">"

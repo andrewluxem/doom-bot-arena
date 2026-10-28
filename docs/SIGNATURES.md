@@ -38,6 +38,8 @@ Applied to the 2A evaluation (MAP01, seeds 101–105, 25 placeholder bot-matches
 | NUL | `frags_within_1500ms_of_visibility_share >= 0.5` | descriptive | 5/5 | 21/25 (84%) |
 | NUL | `kills_from_hold_share >= 0.5` | descriptive | 0/5 | 0/25 |
 
+On 2026-10-28, at the start of milestone 2B, VEX's threshold moved to `median_kill_distance < 140` (data change only). At `< 160` it cleared the rule by one placeholder bot-match.
+
 **Open: milestone 2B replaces the five placeholders with personalities**, so its evaluation has no placeholder bot-matches to separate from. It will need another baseline.
 
 ## Common terms
@@ -65,7 +67,7 @@ ASH `< 96`.
 ### median_kill_distance
 Median 2D distance between the bot and its victim, both rows at the frag tic, over the bot's kills. `n/a` with no kills. Where a rusher fights, not where it first sees someone.
 
-VEX `< 160`, gating.
+VEX `< 140`, gating (`< 160` until milestone 2B).
 
 ### closing_share
 Over the bot's steps whose row at `t` has `behavior: IN_COMBAT` and the same non-null `target_slot` as the row at `t − 1`, with the target alive at both tics: the share where the distance to the target at `t` is smaller than at `t − 1`. Either player's movement counts. `n/a` with no such steps.
