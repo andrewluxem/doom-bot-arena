@@ -12,7 +12,8 @@ Edges are directed (a ledge can be dropped but not climbed) and carry a kind:
   teleport     walks into a teleporter line from its front side and arrives at the
                destination node; info is the line id
 
-Exit lines (map.json `exit`) are walls: crossing or using one kills the player.
+Exit lines (map.json `exit`) are walls: crossing or using one kills the player. Solid things
+(map.json `obstacles`: trees, columns, lamps, barrels) are discs nodes and edges keep clear of.
 Freedoom 0.13 MAP01's north third is reachable only by its fast lift or its two
 teleporters, and one pocket (a deathmatch start and the plasma rifle) only by the lift.
 """
@@ -25,7 +26,7 @@ import pickle
 from engine.geometry import (PLAYER_HEIGHT, STEP_HEIGHT, Grid, MapGeometry, dist_point_segment, orient,
                              segments_cross)
 
-VERSION = 2
+VERSION = 4
 GRID = 32
 RADIUS = 16  # player radius
 NODE_CLEARANCE = 17
@@ -40,6 +41,26 @@ TELEPORTS = {39, 97, 125, 126}
 USABLE_KINDS = {"walk", "door", "remote_door", "teleport", "lift"}
 LIFT_COST = 160  # the platform takes about 3 s to come round
 TELEPORT_APPROACH = 72
+
+
+def segment_hits_box(p, q, cx, cy, half):
+    """Does segment pq enter the open axis-aligned square of half-size `half` centred on (cx, cy)?
+    Doom collides boxes, not circles: a player (half-size 16) touches a thing of radius r when both
+    |dx| and |dy| are below r + 16. Liang-Barsky clipping against the grown square."""
+    t0, t1 = 0.0, 1.0
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    for d, lo, hi in ((dx, cx - half - p[0], cx + half - p[0]), (dy, cy - half - p[1], cy + half - p[1])):
+        if abs(d) < 1e-12:
+            if not (lo < 0 < hi):
+                return False
+            continue
+        a, b = lo / d, hi / d
+        if a > b:
+            a, b = b, a
+        t0, t1 = max(t0, a), min(t1, b)
+        if t0 >= t1:
+            return False
+    return True
 
 
 def seg_seg_dist(p, q, a, b):
@@ -79,6 +100,10 @@ class NavGraph:
         self.lift_switch_lines = {ln.id for ln in self.lines if ln.special in LIFTS and ln.special in (21, 62, 122, 123)}
         self.door_open_ceiling = {s: self._door_open_ceiling(s) for s in self.manual_doors | self.remote_doors}
         self.m_teleport_dests = map_data.get("teleport_destinations", [])
+        self.obstacles = [(o["x"], o["y"], o["radius"]) for o in map_data.get("obstacles", []) if o["in_deathmatch"]]
+        self.obstacle_grid = Grid(map_data["bounds"], 128)
+        for ob in self.obstacles:
+            self.obstacle_grid.add_box(ob, ob[0] - ob[2], ob[1] - ob[2], ob[0] + ob[2], ob[1] + ob[2])
         self.nodes = []  # (x, y, sector)
         self.edges = []  # per node: [(to, cost, kind, info)]
         self._build()
@@ -97,10 +122,13 @@ class NavGraph:
         return self.line_grid.query_box(x0 - pad, y0 - pad, x1 + pad, y1 + pad)
 
     def clearance(self, x, y, limit=64):
+        """Distance to the nearest wall or solid thing's edge, up to limit."""
         best = limit
         for ln in self.lines_near(x, y, x, y, limit):
             if ln.solid:
                 best = min(best, dist_point_segment((x, y), ln.a, ln.b))
+        for ox, oy, r in self.obstacle_grid.query_box(x - limit - 32, y - limit - 32, x + limit + 32, y + limit + 32):
+            best = min(best, max(0.0, max(abs(ox - x), abs(oy - y)) - r))  # box distance
         return best
 
     def standable(self, s, live=None):
@@ -117,10 +145,13 @@ class NavGraph:
         check the step between the sectors at p and q (sp, sq if known) must be climbable.
         """
         x0, y0, x1, y1 = min(p[0], q[0]), min(p[1], q[1]), max(p[0], q[0]), max(p[1], q[1])
+        for ox, oy, r in self.obstacle_grid.query_box(x0 - RADIUS - 32, y0 - RADIUS - 32, x1 + RADIUS + 32, y1 + RADIUS + 32):
+            if segment_hits_box(p, q, ox, oy, r + RADIUS - 1):
+                return None
         crossings = []
         for ln in self.lines_near(x0, y0, x1, y1):
             if ln.solid:
-                if seg_seg_dist(p, q, ln.a, ln.b) < RADIUS - 2:
+                if seg_seg_dist(p, q, ln.a, ln.b) < RADIUS - 1:
                     return None
                 continue
             d1, d2 = orient(ln.a, ln.b, p), orient(ln.a, ln.b, q)
@@ -295,8 +326,9 @@ class NavGraph:
                 return i
         return min(cands)[1] if cands else None
 
-    def astar(self, start, goal, live=None, allow=USABLE_KINDS):
-        """Node path start..goal, or None. remote_door edges need the sector open in `live`."""
+    def astar(self, start, goal, live=None, allow=USABLE_KINDS, blocked=()):
+        """Node path start..goal, or None. remote_door edges need the sector open in `live`;
+        `blocked` holds (u, v) edges to skip (where the bot got stuck)."""
         if start is None or goal is None:
             return None
         gx, gy, _ = self.nodes[goal]
@@ -317,6 +349,8 @@ class NavGraph:
                 if kind not in allow:
                     continue
                 if kind == "remote_door" and not self.sector_open(info, live):
+                    continue
+                if (u, v) in blocked:
                     continue
                 ng = g + c
                 if ng < cost.get(v, math.inf):

@@ -13,7 +13,7 @@ import os
 import struct
 import sys
 
-MAP_FORMAT_VERSION = 2  # 2: linedef `exit`, `items`, `teleport_destinations`
+MAP_FORMAT_VERSION = 2  # 2: linedef `exit`, `items`, `teleport_destinations`, `obstacles`
 
 # Doom II / Freedoom Phase 2 weapon things. The pistol has no thing; every player spawns with it.
 WEAPON_THINGS = {
@@ -40,6 +40,15 @@ ITEM_THINGS = {
 EXIT_SPECIALS = {11, 51, 52, 124}
 DEATHMATCH_START = 11
 TELEPORT_DEST = 14  # a teleporter line sends the player to the destination in the sector tagged like it
+# Solid decorations (Doom II / Freedoom Phase 2 thing types) and their radius: they block movement,
+# so navigation keeps clear of them. Hanging decorations are included; ZDoom may let a player pass
+# under a high one, which only makes the graph cautious.
+SOLID_THINGS = {
+    25: 16, 26: 16, 27: 16, 28: 16, 29: 16, 30: 16, 31: 16, 32: 16, 33: 16, 35: 16, 36: 16, 37: 16,
+    41: 16, 42: 16, 43: 16, 44: 16, 45: 16, 46: 16, 47: 16, 48: 16, 49: 16, 50: 16, 51: 16, 52: 16,
+    53: 16, 54: 32, 55: 16, 56: 16, 57: 16, 70: 16, 73: 16, 74: 16, 75: 16, 76: 16, 77: 16, 78: 16,
+    85: 16, 86: 16, 2028: 16, 2035: 10,
+}
 PLAYER_STARTS = {1: 1, 2: 2, 3: 3, 4: 4}
 EXPLOSIVE_BARREL = 2035
 
@@ -158,7 +167,7 @@ def extract(iwad_path, map_name, skill=3):
     sectors = [{"id": i, "floor": fl, "ceiling": ce, "light": light, "special": sp, "tag": tag}
                for i, (fl, ce, _, _, light, sp, tag) in enumerate(sectors_raw)]
 
-    dm_starts, player_starts, weapons, barrels, items, teleport_dests = [], [], [], [], [], []
+    dm_starts, player_starts, weapons, barrels, items, teleport_dests, obstacles = [], [], [], [], [], [], []
     for idx, (x, y, angle, ttype, flags) in enumerate(things_raw):
         if ttype == DEATHMATCH_START:
             dm_starts.append({"thing": idx, "x": x, "y": y, "angle": angle})
@@ -176,7 +185,10 @@ def extract(iwad_path, map_name, skill=3):
             })
         elif ttype == EXPLOSIVE_BARREL:
             barrels.append({"thing": idx, "x": x, "y": y, "in_deathmatch": spawns_in_deathmatch(flags, skill)})
-        elif ttype == TELEPORT_DEST:
+        if ttype in SOLID_THINGS:  # barrels are listed under `barrels` too
+            obstacles.append({"thing": idx, "type": ttype, "x": x, "y": y, "radius": SOLID_THINGS[ttype],
+                              "in_deathmatch": spawns_in_deathmatch(flags, skill)})
+        if ttype == TELEPORT_DEST:
             teleport_dests.append({"thing": idx, "x": x, "y": y, "angle": angle})
         elif ttype in ITEM_THINGS:
             name, cls = ITEM_THINGS[ttype]
@@ -205,6 +217,7 @@ def extract(iwad_path, map_name, skill=3):
         "barrels": barrels,
         "items": items,
         "teleport_destinations": teleport_dests,
+        "obstacles": obstacles,
     }
 
 
@@ -253,6 +266,7 @@ def main(argv=None):
         if it["in_deathmatch"]:
             by_class[it["class"]] = by_class.get(it["class"], 0) + 1
     print(f"items in deathmatch: {by_class}")
+    print(f"solid obstacles in deathmatch: {sum(o['in_deathmatch'] for o in m['obstacles'])}")
     print(f"wrote {args.out}")
     return 0
 

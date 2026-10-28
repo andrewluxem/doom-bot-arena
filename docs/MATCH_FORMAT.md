@@ -254,7 +254,7 @@ Written by `tools/extract_map.py` from the run's IWAD, which reads Doom-format m
 - `weapons`, with raw flags, `multiplayer_only` (flag 0x10) and `in_deathmatch` at the match skill.
 - `weapons_present`.
 - `barrels`.
-- Since `map_format_version` 2: linedef `exit` (Doom specials 11, 51, 52, 124; navigation treats them as walls), `items` (health, armor, ammo, megasphere and berserk things with their `class`, which the sheets' `items.weights` use), and `teleport_destinations`.
+- Since `map_format_version` 2: linedef `exit` (Doom specials 11, 51, 52, 124; navigation treats them as walls), `items` (health, armor, ammo, megasphere and berserk things with their `class`, which the sheets' `items.weights` use), `teleport_destinations`, and `obstacles` (solid decorations and barrels with their radius; Doom collides them as boxes, and navigation keeps clear of them).
 
 The IWAD rule from section 1 applies: same file as the run, sha256 recorded in both places.
 

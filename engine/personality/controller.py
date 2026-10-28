@@ -40,6 +40,7 @@ FRICTION_SLIDE = 9.7  # a running player coasts about 9.7 tics of its speed (ZDo
 REPLAN_TICS = 3 * TICRATE
 GOAL_TIMEOUT = 20 * TICRATE
 LIFT_GIVE_UP = 8 * TICRATE
+BLOCK_TICS = 15 * TICRATE
 
 
 def wrap180(a):
@@ -106,6 +107,8 @@ class PersonalityBot:
             c["node"] = c["id"]
         self._dmap, self._dmap_t = {}, None
         self.searched = {}  # contact key -> last_seen tic whose position the bot has already checked
+        self.goal_unreachable = False
+        self.blocked = {}  # (u, v) nav edge -> tic until which it is skipped (the bot got stuck on it)
         self.alive = None
         self.behavior, self.scores = "ROAMING", None
         self.target, self.engaging, self.weapon_choice = None, False, None
@@ -120,7 +123,7 @@ class PersonalityBot:
         self.look_back_until, self.look_back_dir = -1, 0.0
         self.lift_wait_since, self.lift_blocked_until = None, -1
         self.use_tic = -10 ** 9
-        self.live, self.lift_floor = {}, {}
+        self.live, self.lift_floor, self.door_ceiling = {}, {}, {}
         self.ang = 0.0
         self.trace = [] if os.environ.get("DBA_TRACE") else None
 
@@ -176,6 +179,7 @@ class PersonalityBot:
                 live[s] = secs[s].ceiling_height
         self.live = live
         self.lift_floor = {s: secs[s].floor_height for s in self.graph.lift_sectors if s < len(secs)}
+        self.door_ceiling = {s: secs[s].ceiling_height for s in self.graph.manual_doors if s < len(secs)}
 
     def _watch_self(self, t, v, x, y):
         """Pickups (to time item respawns), damage taken while no enemy is in view, and getting stuck."""
@@ -337,7 +341,8 @@ class PersonalityBot:
                 if (latest is not None and t - latest.last_seen <= RECENT_CONTACT
                         and self.searched.get(latest.key) != latest.last_seen):
                     goal, tag = latest.position_at(t), f"hunt:{latest.key}"
-                    if math.hypot(goal[0] - x, goal[1] - y) < 64:  # got there and nobody is in view
+                    if math.hypot(goal[0] - x, goal[1] - y) < 64 or (self.goal_tag == tag and self.goal_unreachable):
+                        # got there and nobody is in view, or there is no way there (seen through a window)
                         self.searched[latest.key] = latest.last_seen
                         goal, tag = self._random_attractor(t, x, y), "hunt"
                 elif self.goal_tag == "hunt" and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
@@ -422,8 +427,10 @@ class PersonalityBot:
         start = g.nearest(x, y)
         goal = g.nearest(self.goal[0], self.goal[1], max_dist=256, need_clear=False)
         allow = nav.USABLE_KINDS if t >= self.lift_blocked_until else nav.USABLE_KINDS - {"lift"}
-        self.path = g.astar(start, goal, live=self.live, allow=allow)
+        blocked = {e for e, until in self.blocked.items() if until > t}
+        self.path = g.astar(start, goal, live=self.live, allow=allow, blocked=blocked)
         self.path_i = 0
+        self.goal_unreachable = self.path is None and g.move_check((x, y), self.goal) is None
 
     # ------------------------------------------------------------------ execute (every tic)
     def _execute(self, t, v, x, y, z, ang):
@@ -437,7 +444,9 @@ class PersonalityBot:
             aim = self._aim(t, v, x, y, z)
             face = aim["yaw"]
 
-        hold_here = d.spot_mode and self.at_spot and self.behavior in (d.hold_label, "IN_COMBAT")
+        # hold only when the spot is the current goal: fetching a weapon or ammo comes first
+        hold_here = (d.spot_mode and self.at_spot and self.behavior in (d.hold_label, "IN_COMBAT")
+                     and (self.goal_tag is None or self.goal_tag.startswith("spot:")))
         if self.behavior == "IN_COMBAT" and self.target is not None and not hold_here:
             if self.target.visible or self.path is None:
                 move = self._combat_move(t, x, y)
@@ -460,6 +469,9 @@ class PersonalityBot:
         else:
             self.trail.clear()  # standing still on purpose is not being stuck
 
+        door = action.pop("_door", None)
+        if door is not None:  # a closed door on the path: open it before anything else
+            face, aim = door, None
         if face is None:
             if t < self.look_back_until:
                 face = self.look_back_dir
@@ -523,6 +535,8 @@ class PersonalityBot:
         dist = math.hypot(sx - x, sy - y)
         if dist > 256 or len(self.trail) < 2:
             return move, True
+        if self.graph.move_check((x, y), (sx, sy)) is None:
+            return move, True  # not straight-line reachable (a ledge, a wall): keep following the path
         (px, py), (cx, cy) = self.trail[-2], self.trail[-1]
         toward = ((cx - px) * (sx - x) + (cy - py) * (sy - y)) / max(dist, 1.0)
         if toward * FRICTION_SLIDE > dist:
@@ -553,7 +567,8 @@ class PersonalityBot:
         if self.goal is None:
             return None
         if not self.path:
-            if math.hypot(self.goal[0] - x, self.goal[1] - y) > ARRIVE:
+            # no route: head straight for the goal only if that is walkable from here
+            if math.hypot(self.goal[0] - x, self.goal[1] - y) > ARRIVE and not self.goal_unreachable:
                 return bearing(x, y, self.goal[0], self.goal[1])
             return None
         while self.path_i < len(self.path):
@@ -582,8 +597,10 @@ class PersonalityBot:
         if kind == "door":
             ln = g.lines[info]
             mx, my = (ln.a[0] + ln.b[0]) / 2, (ln.a[1] + ln.b[1]) / 2
-            if math.hypot(mx - x, my - y) < 96:
-                action["_face"] = bearing(x, y, mx, my)
+            door = ln.back if ln.back in g.manual_doors else ln.front
+            closed = self.door_ceiling.get(door, g.ceil[door]) - g.floor[door] < 56
+            if closed and math.hypot(mx - x, my - y) < 96:
+                action["_door"] = bearing(x, y, mx, my)
                 if t - self.use_tic >= 8 and self._use_hits(x, y, info):
                     action["USE"], self.use_tic = 1, t
         if kind == "lift":
@@ -647,6 +664,9 @@ class PersonalityBot:
     def _check_stuck(self, t, x, y):
         if len(self.trail) >= 24 and math.dist(self.trail[0], self.trail[-1]) < 12:
             self.stuck_count += 1
+            if self.path and 0 < self.path_i < len(self.path):
+                # something the graph does not know about (a player in a doorway, a thing) is in the way
+                self.blocked[(self.path[self.path_i - 1], self.path[self.path_i])] = t + BLOCK_TICS
             self.unstick_until, self.unstick_dir = t + 10, self.rng.choice((-1, 1))
             self.trail.clear()
             if self.goal is not None:
