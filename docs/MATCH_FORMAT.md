@@ -256,6 +256,11 @@ Parsing:
   - Unknown lines are logged as warnings in `runner.log` and counted in `match.json.notifications.unknown_lines`. They never become events.
 - **Rejected `OBIT` lines.** A line with a wrong field count, an unknown key, or a name not in the match is rejected with a warning. So is a key/killer combination that cannot be attributed (`OB_VOODOO`, `OB_FRIENDLY*`, or a self-kill key with a different killer).
 - **Agreement across processes.** All eight processes must log identical `OBIT` lines at identical tics. Events are built from that agreed list.
+- **Host player-name fault (found in milestone 2B).** In some matches the hosting process (slot 1) prints one player under another player's name in every obituary that names it, for the whole match. The seven clients print the right name.
+  - Seen on E1M5 (seed 202, twice), MAP10 (seed 204), MAP01 (seed 104 with the 2A roster) and one MAP10 test match: five of about thirty captures on 2026-10-28.
+  - Examples: Orbit printed as Hex, Null as Zed, Ash as Hex, Ash as Pyre. The host prints no rename message.
+  - The cause is not known. It appeared once several matches shared the CPU and once with only two. 1A and 2A, run one at a time, never showed it.
+  - The agreement check and the telemetry reconciliation reject every such capture, so no bundle carries a wrong name. The runner targets run a failed capture once more.
 
 ### 6.2 Why the override (gate record)
 

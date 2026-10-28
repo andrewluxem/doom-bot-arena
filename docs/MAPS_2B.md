@@ -39,3 +39,17 @@ Weapons: CG chaingun, saw chainsaw, SG shotgun, SSG super shotgun, RL rocket lau
   - E1M5 is a Doom 1 map with no super shotgun, so VEX and PYR resolve to the shotgun. Its 47 armor items suit PYR's `armor_pickups_rank`.
 
 **What neither has:** a berserk pack reachable without a lift. E1M1 (8 starts, berserk reachable from 4) is the candidate third map for ASH's berserk, alongside MAP10 and E1M5 rather than replacing either: its chainsaw is reachable from none. No matches have been run on any of the three.
+
+## Found in milestone 2B: regions and pockets
+
+On the static map (map.json heights, so floors that W1/S1 lines lower during play are not modelled), both maps split into separate navigation regions. The survey's reach column already showed this ("7/10"), but it was not called out. Nav graph version 6 (`engine/personality/nav.py`) keeps every region of 64 nodes or more. One-way edges are kept only toward a larger region.
+
+| map | largest region | other regions with deathmatch starts | how the others connect in play |
+|---|---|---|---|
+| MAP10 | 5,887 nodes, 6 starts | 1,634 nodes, 2 starts, plus a 371-node region that drops into it, 1 start | W1/S1 floor-lowering lines and key doors (keys never spawn in deathmatch) |
+| MAP10 | | a 164-node pocket at (−2080, −1056), 1 start | entered by WR teleporter lines tagged 12; left only by an S1 floor switch (line 2918) |
+| E1M5 | 4,643 nodes, 8 starts | the 291-node exit room at (−1188, 1088), 1 start, with a rocket launcher 20 units from the start | left only by a red key door, or by the exit switch, which kills the player under `sv_noexit` (`OB_EXIT`) |
+
+- **Placeholders.** In the MAP10 baseline (seed 201), three of the eight placeholders spent most of the match in the 1,634-node region. They crossed between regions only by respawning. Placeholders that spawn in E1M5's exit room stay there until they die, usually on the exit switch, which they press at random.
+- **Personalities** keep to the region they spawn in. A bot spawned into a pocket (fewer than 600 nodes reachable, every door open) uses the pocket's exit switch once no enemy is in view, or the console `kill` where there is none (MAP10's pocket). It then respawns elsewhere. Both count as suicides.
+- **Level-start spawns are random** (MATCH_FORMAT section 2), so a bot starts in a pocket in roughly half the matches on each map.
