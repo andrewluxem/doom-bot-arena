@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "id": "20261028T042416Z-MAP01-s1234",
+  "date": "2026-10-28T04:24:16Z",
+  "iwad": {
+    "name": "freedoom2.wad",
+    "sha256": "a8772e088847032510d97ba2312406a6998f21cbab44d4ff10696faa9c0ecd4b"
+  },
+  "map": "MAP01",
+  "seed": 1234,
+  "ticrate": 35,
+  "vizdoom_version": "1.3.2",
+  "platform": {
+    "os": "Linux-7.0.14-linuxkit-x86_64-with-glibc2.36",
+    "python": "3.12.16",
+    "ffmpeg": "ffmpeg version 5.1.9-0+deb12u1 Copyright (c) 2000-2026 the FFmpeg developers"
+  },
+  "duration_tics": 1050,
+  "frame0_tic": 176,
+  "respawn_delay_s": 2,
+  "skill": 3,
+  "controller": "engine.bots:PlaceholderBot",
+  "bots": [
+    {
+      "slot": 1,
+      "code": "VEX",
+      "name": "Vex",
+      "archetype": "rusher",
+      "colorset": 0,
+      "player_number": 0
+    },
+    {
+      "slot": 2,
+      "code": "KRN",
+      "name": "Kronos",
+      "archetype": "tactician",
+      "colorset": 1,
+      "player_number": 1
+    },
+    {
+      "slot": 3,
+      "code": "NUL",
+      "name": "Null",
+      "archetype": "ambusher",
+      "colorset": 2,
+      "player_number": 7
+    },
+    {
+      "slot": 4,
+      "code": "ASH",
+      "name": "Ash",
+      "archetype": "berserker",
+      "colorset": 3,
+      "player_number": 6
+    },
+    {
+      "slot": 5,
+      "code": "ORB",
+      "name": "Orbit",
+      "archetype": "kiter",
+      "colorset": 4,
+      "player_number": 2
+    },
+    {
+      "slot": 6,
+      "code": "HEX",
+      "name": "Hex",
+      "archetype": "camper",
+      "colorset": 5,
+      "player_number": 3
+    },
+    {
+      "slot": 7,
+      "code": "PYR",
+      "name": "Pyre",
+      "archetype": "flanker",
+      "colorset": 6,
+      "player_number": 4
+    },
+    {
+      "slot": 8,
+      "code": "ZED",
+      "name": "Zed",
+      "archetype": "erratic",
+      "colorset": 7,
+      "player_number": 5
+    }
+  ],
+  "weapons_present": [
+    "chaingun",
+    "chainsaw",
+    "plasma_rifle",
+    "rocket_launcher",
+    "shotgun",
+    "super_shotgun"
+  ],
+  "engine": [
+    {
+      "slot": 1,
+      "player_number": 0,
+      "fragcount": 1,
+      "deathcount": 1
+    },
+    {
+      "slot": 2,
+      "player_number": 1,
+      "fragcount": 2,
+      "deathcount": 2
+    },
+    {
+      "slot": 3,
+      "player_number": 7,
+      "fragcount": 1,
+      "deathcount": 0
+    },
+    {
+      "slot": 4,
+      "player_number": 6,
+      "fragcount": 1,
+      "deathcount": 0
+    },
+    {
+      "slot": 5,
+      "player_number": 2,
+      "fragcount": 1,
+      "deathcount": 2
+    },
+    {
+      "slot": 6,
+      "player_number": 3,
+      "fragcount": 0,
+      "deathcount": 1
+    },
+    {
+      "slot": 7,
+      "player_number": 4,
+      "fragcount": 0,
+      "deathcount": 2
+    },
+    {
+      "slot": 8,
+      "player_number": 5,
+      "fragcount": 0,
+      "deathcount": 0
+    }
+  ],
+  "score": {
+    "rule": "displayed columns count events at tic >= frame0_tic; displayed_frags = kills - suicides; displayed_deaths = deaths; frags_raw and deaths_raw are engine counters at the last tic",
+    "rows": [
+      {
+        "slot": 1,
+        "displayed_frags": 1,
+        "displayed_deaths": 1,
+        "frags_raw": 1,
+        "deaths_raw": 1,
+        "kills": 1,
+        "telefrags": 0,
+        "suicides": 0,
+        "environmental_deaths": 0
+      },
+      {
+        "slot": 2,
+        "displayed_frags": 2,
+        "displayed_deaths": 2,
+        "frags_raw": 2,
+        "deaths_raw": 2,
+        "kills": 2,
+        "telefrags": 0,
+        "suicides": 0,
+        "environmental_deaths": 0
+      },
+      {
+        "slot": 3,
+        "displayed_frags": 1,
+        "displayed_deaths": 0,
+        "frags_raw": 1,
+        "deaths_raw": 0,
+        "kills": 1,
+        "telefrags": 0,
+        "suicides": 0,
+        "environmental_deaths": 0
+      },
+      {
+        "slot": 4,
+        "displayed_frags": 1,
+        "displayed_deaths": 0,
+        "frags_raw": 1,
+        "deaths_raw": 0,
+        "kills": 1,
+        "telefrags": 0,
+        "suicides": 0,
+        "environmental_deaths": 0
+      },
+      {
+        "slot": 5,
+        "displayed_frags": 1,
+        "displayed_deaths": 2,
+        "frags_raw": 1,
+        "deaths_raw": 2,
+        "kills": 1,
+        "telefrags": 0,
+        "suicides": 0,
+        "environmental_deaths": 0
+      },
+      {
+        "slot": 6,
+        "displayed_frags": 0,
+        "displayed_deaths": 1,
+        "frags_raw": 0,
+        "deaths_raw": 1,
+        "kills": 0,
+        "telefrags": 0,
+        "suicides": 0,
+        "environmental_deaths": 0
+      },
+      {
+        "slot": 7,
+        "displayed_frags": 0,
+        "displayed_deaths": 2,
+        "frags_raw": 0,
+        "deaths_raw": 2,
+        "kills": 1,
+        "telefrags": 0,
+        "suicides": 1,
+        "environmental_deaths": 0
+      },
+      {
+        "slot": 8,
+        "displayed_frags": 0,
+        "displayed_deaths": 0,
+        "frags_raw": 0,
+        "deaths_raw": 0,
+        "kills": 0,
+        "telefrags": 0,
+        "suicides": 0,
+        "environmental_deaths": 0
+      }
+    ]
+  },
+  "event_counts": {
+    "frag": 7,
+    "telefrag": 3,
+    "suicide": 1,
+    "environmental_death": 0,
+    "respawn": 10
+  },
+  "obituary_wad": {
+    "sha256": "74149d45c4a27e25d20e00194c0091489bcd6297ad42e8bb9e30e6d6ce399f0f",
+    "keys": 31,
+    "format": "OBIT|<key>|<victim>|<killer>"
+  },
+  "notifications": {
+    "unknown_lines": 68,
+    "unattributed_obituaries": 0
+  },
+  "sync": {
+    "barrier": true,
+    "steps": 1226,
+    "gaps": 0,
+    "frag_vector_mismatches": 0
+  },
+  "render": {
+    "hud": false,
+    "crosshair": false,
+    "weapon": true,
+    "messages": false,
+    "messages_per_slot": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "pov": [
+    {
+      "slot": 1,
+      "path": "pov/slot1.mp4",
+      "sha256": "eaa28fa91971f0965463a9bda41e1e550d113177f3317b2b29bb09fce5b548bd"
+    },
+    {
+      "slot": 2,
+      "path": "pov/slot2.mp4",
+      "sha256": "840418f303adb8ff2d60337b0e69fc41ab8930372ca85f941f803a4655b70123"
+    },
+    {
+      "slot": 3,
+      "path": "pov/slot3.mp4",
+      "sha256": "edba8adf6c9defde11d982b2056d03b196c6422ce40e3ff10f24a9e7a54411c3"
+    },
+    {
+      "slot": 4,
+      "path": "pov/slot4.mp4",
+      "sha256": "c3d912cde2e447a1ab31d6b25a7752ac99a680b92196baadd5c4b6cf02a03be6"
+    },
+    {
+      "slot": 5,
+      "path": "pov/slot5.mp4",
+      "sha256": "18566a9d45732f8d4356feb703327e7066d9782bd34c4667aa8f1193c399c378"
+    },
+    {
+      "slot": 6,
+      "path": "pov/slot6.mp4",
+      "sha256": "cc07ffda1df39125adab248abd1890a71dce1929b2ee2304127541f24bda9fcb"
+    },
+    {
+      "slot": 7,
+      "path": "pov/slot7.mp4",
+      "sha256": "466ad56671ef8aa0b28101edc624ded18f1a2631f82a0469049dd1b422f9eacf"
+    },
+    {
+      "slot": 8,
+      "path": "pov/slot8.mp4",
+      "sha256": "5facfe4164a7f8cd09957c2fd2b3ae28713f4c3420c19de9052a367fc05b637e"
+    }
+  ],
+  "host_args": [
+    "-host 8",
+    "-port 5029",
+    "-netmode 0",
+    "-deathmatch",
+    "-nomonsters",
+    "+sv_forcerespawn 1",
+    "+sv_noautoaim 1",
+    "+sv_respawnprotect 1",
+    "+sv_spawnfarthest 1",
+    "+sv_nocrouch 1",
+    "+sv_noexit 1",
+    "+viz_nocheat 0",
+    "+viz_respawn_delay 2"
+  ],
+  "client_args": [
+    "-join 127.0.0.1",
+    "-port 5029"
+  ],
+  "sample_reencode": {
+    "reason": "web sample copy kept under 25 MB",
+    "crf": 32,
+    "source_crf": 23,
+    "command": "ffmpeg -v error -y -i <bundle>/pov/slot<n>.mp4 -an -c:v libx264 -preset veryfast -crf 32 -pix_fmt yuv420p -g 35 -r 35 -movflags +faststart pov/slot<n>.mp4",
+    "ffmpeg": "ffmpeg version 5.1.9-0+deb12u1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "original_pov": [
+      {
+        "slot": 1,
+        "sha256": "e3094813edbdf01f4e1a4b23e83eafc7c0a14c71cdac60d3c564419e3e201a3c",
+        "bytes": 2877496
+      },
+      {
+        "slot": 2,
+        "sha256": "2b065fd42f7d5b174203f07a3eaf46fa91395eabdcde21730801f32ba5cb0d2f",
+        "bytes": 2640239
+      },
+      {
+        "slot": 3,
+        "sha256": "e331b2df4ee5adf7adafd4d3019c42cd713766a2d97e93654397831e3d716aa1",
+        "bytes": 3025944
+      },
+      {
+        "slot": 4,
+        "sha256": "aab4c9fc8bbf5823206db08acb8153d2f83df18a86bbc3b70ae3f1bd6aabe921",
+        "bytes": 3183326
+      },
+      {
+        "slot": 5,
+        "sha256": "5eac7e14739f8d5745620bc735444afc9b17b43d82dd9a5f47a89b09e8de0de3",
+        "bytes": 2578174
+      },
+      {
+        "slot": 6,
+        "sha256": "2b1b9613747165fa29a5641424a5c445834d64809443c5176084eec8a2ce5e7a",
+        "bytes": 3119064
+      },
+      {
+        "slot": 7,
+        "sha256": "88128636dbac757f77a79821c77031cff6c25c4251aa44a4d4c8b4caa1045806",
+        "bytes": 2639827
+      },
+      {
+        "slot": 8,
+        "sha256": "30e052ed910e2511d85e100edbd4872cf58092284f18e14fdcc40a697f60802a",
+        "bytes": 3277312
+      }
+    ],
+    "note": "re-encoded from the capture's decoded frames; frame count, rate and size unchanged"
+  }
+}

@@ -1,0 +1,117 @@
+/* Viewer layout for Option A. Component looks come from design/tokens.css and design/dba.css;
+   this file places them, adds the live-video layer, and keeps text over video readable. */
+:root { color-scheme: dark; }
+:root[data-theme="paper"] { color-scheme: light; }
+:root {
+  /* Flat scrim behind text that sits on video: surface-0 at 86%. That holds ink, ink-muted and every
+     dark-theme bot colour at 4.5:1 or better over a pure-white pixel (pure black on paper, ink and ink-muted). */
+  --scrim: color-mix(in srgb, var(--surface-0) 86%, transparent);
+  --dim: color-mix(in srgb, var(--surface-0) 55%, transparent);
+}
+html, body { margin: 0; height: 100%; background: var(--surface-0); }
+body { overflow: hidden; }
+.app { display: block; height: 100vh; height: 100dvh; }
+.boot { height: 100%; display: grid; place-content: center; gap: 10px; text-align: center; font: 500 11px/1.5 var(--font-mono); color: var(--ink-muted); padding: 16px; }
+
+.L { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.panel { border: 1px solid var(--rule); background: var(--surface-1); padding: 10px 12px; min-width: 0; min-height: 0; overflow: hidden; }
+.panel > .kick { display: block; margin-bottom: 8px; }
+.feat { font: 500 10px/1.5 var(--font-mono); letter-spacing: .05em; color: var(--ink-muted); border-top: 1px solid var(--rule-soft); padding-top: 8px; margin-top: 10px; }
+.feat b { color: var(--ink); font-weight: 700; }
+.kf-none { color: var(--ink-muted); letter-spacing: .08em; font-size: 10px; }
+.kf-self { color: var(--ink-muted); }
+
+/* ---------- top bar ---------- */
+.a-top { flex: none; height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr); border: 1px solid var(--rule); background: var(--surface-1); }
+.a-brand { display: flex; align-items: center; gap: 20px; padding: 0 14px; border-right: 1px solid var(--rule); }
+.brand { display: flex; flex-direction: column; gap: 5px; white-space: nowrap; }
+.brand-t { font: 800 20px/1 var(--font-display); letter-spacing: .07em; white-space: nowrap; }
+.brand-s { font: 500 9px/1 var(--font-mono); letter-spacing: .1em; color: var(--ink-muted); }
+.tb { display: flex; gap: 6px; }
+.tb-btn { height: 26px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule-strong); background: var(--surface-0); color: var(--ink); font: 600 10px/1 var(--font-mono); letter-spacing: .1em; white-space: nowrap; }
+.tb-btn:hover { border-color: var(--ink); }
+.sb-cell { cursor: pointer; }
+
+/* ---------- desktop: multiview ---------- */
+.a-wall { flex: none; width: var(--wall-w, 100%); max-width: 100%; margin: 0 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.a-dock { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px var(--map-w, 226px); gap: 6px; }
+
+/* ---------- desktop: focused ---------- */
+.af { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--stage-w, 852px) minmax(0, 1fr); gap: 8px; }
+.af-l { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.af-thumbs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.af-r { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+.af-r .tele { flex: 1; min-height: 0; overflow: auto; }
+.af-r .tl-panel { flex: none; }
+.af-bot { flex: none; height: clamp(170px, 28vh, 247px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 6px; }
+
+/* ---------- desktop: map expanded ---------- */
+.am { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--rail-w, 340px) minmax(0, 1fr); gap: 8px; }
+.am-l { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.am-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.am-l > .panel { flex: 1; }
+.L-map .mm-hd { height: 28px; font-size: 11px; padding: 0 12px; }
+
+/* ---------- map panel ---------- */
+[data-put="map"] { min-width: 0; min-height: 0; }
+.mm-host { flex: 1; min-height: 0; position: relative; cursor: pointer; }
+.mm-host canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+button.mm-hint { font: inherit; letter-spacing: inherit; }
+
+/* ---------- timeline track (clip lets matches longer than the window scroll under it) ---------- */
+.tl-lane { cursor: pointer; touch-action: none; }
+.a-dock .tl-lane { height: clamp(34px, calc(var(--dock-h, 190px) - 150px), 84px); }
+.tl-clip { position: absolute; inset: 0 0 -1px 0; overflow: hidden; }
+.tl-track { position: absolute; top: 0; bottom: 0; left: 0; width: 100%; }
+.tl-axis { overflow: hidden; }
+.tl-axis-in { position: relative; height: 100%; width: 100%; }
+.tl-ov { cursor: pointer; touch-action: none; }
+
+/* ---------- POV tile: live video with the nameplate and HP bar laid over it ---------- */
+.vt-media { position: relative; aspect-ratio: 4 / 3; background: var(--feed); overflow: hidden; }
+.vt-media video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: fill; }
+.vt .t-hd { position: absolute; z-index: 2; top: 0; left: 0; right: 0; border-bottom: 0; background: var(--scrim); }
+.vt .t-ft { position: absolute; z-index: 2; bottom: 0; left: 0; right: 0; border-top: 0; background: var(--scrim); }
+.vt-dim { position: absolute; inset: 0; z-index: 1; background: var(--dim); visibility: hidden; }
+.vt-resp { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+/* Dead: the video keeps running, dimmed and desaturated, under the countdown. */
+.vt.is-dead .vt-dim { visibility: visible; }
+.vt.is-dead video { filter: grayscale(1); }
+/* Text over video stays ink or ink-muted (ink-faint is 4.1:1 on dark surface-0, 3.8:1 on paper). */
+.vt.is-dead .t-nm, .vt.is-dead .t-fr, .vt.is-dead .t-hpv, .vt .resp-by { color: var(--ink-muted); }
+/* Critical HP keeps the bot-coloured value from the design, on an opaque chip instead of the scrim. */
+.vt.is-crit .t-hpv { width: auto; padding: 2px 3px; background: var(--surface-0); }
+.tile--xs .t-ft .hp { flex: 1; }
+
+/* ---------- phone ---------- */
+.L-phone { padding: 0; gap: 0; }
+.ph-top { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px; border-bottom: 1px solid var(--rule); }
+.ph-top .brand-t { font-size: 15px; letter-spacing: .05em; }
+.ph-top .clk { margin-left: auto; gap: 5px; }
+.ph-top .clk .live, .ph-top .clk-of { display: none; }
+.ph-top .clk-t { font-size: 20px; }
+.ph-top .tb-btn { height: 24px; padding: 0 6px; }
+.ph-top .tb-btn kbd { display: none; }
+.drawer { flex: none; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--rule); background: var(--surface-1); white-space: nowrap; overflow: hidden; cursor: pointer; }
+.drawer .kick { font-size: 11px; color: var(--ink); }
+.drawer .ldr { display: flex; gap: 10px; font: 600 11px/1 var(--font-mono); overflow: hidden; }
+.drawer .ldr > span { display: inline-flex; align-items: center; gap: 4px; }
+.drawer .ldr .sw { width: 7px; height: 7px; }
+.drawer .chev { margin-left: auto; font: 600 11px/1 var(--font-mono); color: var(--ink-muted); }
+.drawer-body { flex: none; max-height: 45vh; overflow: auto; padding: 8px 10px; border-bottom: 1px solid var(--rule); background: var(--surface-1); }
+.drawer-body .sb-table tr { cursor: pointer; }
+.ph-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.pa-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px 6px; }
+.ph-stage { padding: 6px 6px 4px; }
+.ph-strip { display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 12px - 9px) / 3.4); gap: 3px; overflow-x: auto; padding: 0 6px 6px; scrollbar-width: none; }
+.ph-strip--map { flex: none; padding-top: 6px; }
+.ph-scroll .tele, .ph-scroll .kf-panel { margin: 0 6px 6px; }
+.ph-mapx { flex: 1; min-height: 0; padding: 0 6px 6px; }
+.ph-dock { flex: none; height: calc(104px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 6px; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--rule-strong); background: var(--surface-0); }
+.ph-dock--solo { grid-template-columns: minmax(0, 1fr); height: calc(70px + env(safe-area-inset-bottom)); }
+.ph-dock .tl-panel { padding: 8px 8px 6px; }
+.ph-dock .mm-hd { height: 16px; font-size: 8px; padding: 0 5px; }
+.L-phone .tele--compact .tele-grid { grid-template-columns: 1fr 1fr; }
+.L-phone .tele--compact .tele-grid .tg { padding: 8px 10px 8px 0; border-left: 0; }
+.L-phone .tele--compact .tele-grid .tg:nth-child(even) { padding-left: 10px; border-left: 1px solid var(--rule-soft); }
+.L-phone .tele--compact .tele-hd { flex-wrap: wrap; }

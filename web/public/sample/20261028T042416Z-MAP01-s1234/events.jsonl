@@ -1,0 +1,21 @@
+{"tic":0,"type":"telefrag","actor":2,"target":1,"key":"OB_MPTELEFRAG","credited":false,"source":"OBIT|OB_MPTELEFRAG|Vex|Kronos"}
+{"tic":0,"type":"telefrag","actor":7,"target":5,"key":"OB_MPTELEFRAG","credited":false,"source":"OBIT|OB_MPTELEFRAG|Orbit|Pyre"}
+{"tic":0,"type":"telefrag","actor":8,"target":6,"key":"OB_MPTELEFRAG","credited":false,"source":"OBIT|OB_MPTELEFRAG|Hex|Zed"}
+{"tic":71,"type":"respawn","actor":1,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":71,"type":"respawn","actor":5,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":71,"type":"respawn","actor":6,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":192,"type":"frag","actor":4,"target":2,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Kronos|Ash"}
+{"tic":263,"type":"respawn","actor":2,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":296,"type":"frag","actor":3,"target":7,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Pyre|Null"}
+{"tic":367,"type":"respawn","actor":7,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":420,"type":"frag","actor":2,"target":6,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Hex|Kronos"}
+{"tic":473,"type":"frag","actor":1,"target":5,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Orbit|Vex"}
+{"tic":483,"type":"frag","actor":7,"target":1,"key":"OB_MPSSHOTGUN","credited":true,"source":"OBIT|OB_MPSSHOTGUN|Vex|Pyre"}
+{"tic":491,"type":"respawn","actor":6,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":544,"type":"respawn","actor":5,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":554,"type":"respawn","actor":1,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":582,"type":"suicide","actor":7,"target":7,"key":"OB_EXIT","credited":true,"source":"OBIT|OB_EXIT|Pyre|Pyre"}
+{"tic":653,"type":"respawn","actor":7,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":864,"type":"frag","actor":5,"target":2,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Kronos|Orbit"}
+{"tic":935,"type":"respawn","actor":2,"target":null,"key":null,"credited":null,"source":"tics.jsonl:alive false->true"}
+{"tic":1168,"type":"frag","actor":2,"target":5,"key":"OB_MPSHOTGUN","credited":true,"source":"OBIT|OB_MPSHOTGUN|Orbit|Kronos"}
