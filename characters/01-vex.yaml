@@ -45,8 +45,20 @@ signature:
   - metric: median_kill_distance
     op: "<"
     value: 104   # fit-2d: fitted on eval-2c (tools/fit_thresholds.py); was 140
-    gate: true
+    gate: false   # fit-2e (eval-2c+eval-2d): does not separate on both maps
   - metric: closing_share   # share of IN_COMBAT tics where the distance to target_slot fell
     op: ">"
     value: 0.6
     gate: false   # placeholders pass it too (docs/SIGNATURES.md, separation)
+  - metric: engagement_initiations_rank   # 1 = starts the most fights per alive minute (milestone 2E)
+    op: "<="
+    value: 2
+    gate: false   # fit-2e (eval-2c+eval-2d): does not separate on both maps
+  - metric: engagement_initiations_rank   # ...and kills close, ranged kills only (milestone 2E)
+    op: "<="
+    value: 5   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 2
+    and:
+      metric: median_kill_distance
+      op: "<"
+      value: 165   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 160
+    gate: true

@@ -27,6 +27,10 @@ EVAL2D_SEEDS ?= 501 502 503 504 505
 EVAL2D_OUT ?= bundles/eval-2d
 TRAFFIC_EVALS ?= bundles/eval-2c
 
+# Milestone 2E holdout: thresholds fitted on eval-2c + eval-2d (fit-2e), spots scored by both evaluations' traffic.
+EVAL2E_SEEDS ?= 601 602 603 604 605
+EVAL2E_OUT ?= bundles/eval-2e
+
 # Milestone 2C: two placeholder matches per map seed the traffic map spots are scored by, then the evaluation.
 EVAL2C_MAPS ?= MAP10 E1M5
 TRAFFIC_SEEDS ?= 211 212
@@ -39,7 +43,7 @@ DISK_CHECK = avail=$$(df -Pk . | awk 'NR==2 {print int($$4 / 1048576)}'); \
 	if [ "$$avail" -lt $(MIN_FREE_GB) ]; then echo "refusing to start: $$avail GB free, under $(MIN_FREE_GB) GB"; exit 1; fi; \
 	echo "disk: $$avail GB free"
 
-.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b traffic-2c eval-2c signatures-2c eval-2d fit-2d signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b docker-traffic-2c docker-eval-2c docker-signatures-2c docker-eval-2d docker-fit-2d
+.PHONY: test bench bench-smoke bench-controlled bench-personality bench-spawn bench-items match validate eval baseline eval-2b signatures-2b traffic-2c eval-2c signatures-2c eval-2d fit-2d signatures image docker-test docker-bench docker-match docker-validate docker-eval docker-baseline docker-eval-2b docker-traffic-2c docker-eval-2c docker-signatures-2c docker-eval-2d docker-eval-2e docker-fit-2d
 
 test:
 	$(PYTHON) -m pytest -q tests
@@ -165,6 +169,9 @@ docker-eval-2c:
 
 docker-signatures-2c:
 	$(DOCKER_RUN) make signatures-2c EVAL2C_OUT=$(EVAL2C_OUT)
+
+docker-eval-2e:
+	$(DOCKER_RUN) make eval-2d EVAL2C_MAPS="$(EVAL2C_MAPS)" EVAL2D_SEEDS="$(EVAL2E_SEEDS)" EVAL2D_OUT=$(EVAL2E_OUT) TRAFFIC_EVALS="bundles/eval-2c bundles/eval-2d" TRAFFIC_OUT=$(TRAFFIC_OUT)
 
 docker-eval-2d:
 	$(DOCKER_RUN) make eval-2d EVAL2C_MAPS="$(EVAL2C_MAPS)" EVAL2D_SEEDS="$(EVAL2D_SEEDS)" EVAL2D_OUT=$(EVAL2D_OUT) TRAFFIC_EVALS="$(TRAFFIC_EVALS)" TRAFFIC_OUT=$(TRAFFIC_OUT)

@@ -47,9 +47,9 @@ spots: null
 signature:
   - metric: third_party_kill_share   # victim was fighting another slot or hurt by one in the 3 s before
     op: ">="
-    value: 0.6
+    value: 0.55   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 0.6
     gate: true
   - metric: first_contact_avoidance_share   # fresh enemies in view it does not take on
     op: ">="
-    value: 0.6   # fit-2d: fitted on eval-2c (tools/fit_thresholds.py); was 0.5
+    value: 0.55   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 0.6
     gate: true   # milestone 2D: separates against the roster (2C: 10/10, the other seven 0-3%)

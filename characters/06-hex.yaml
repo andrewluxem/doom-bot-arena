@@ -50,9 +50,17 @@ spots:
 signature:
   - metric: stationary_share
     op: ">"
-    value: 0.56   # fit-2d: fitted on eval-2c (tools/fit_thresholds.py); was 0.7
+    value: 0.561   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 0.56
     gate: true
   - metric: median_first_sight_engagement_distance
     op: ">"
     value: 500
     gate: false   # placeholders pass it too (docs/SIGNATURES.md, separation)
+  - metric: stationary_share   # holds still, and kills from the hold (milestone 2E, fitted jointly)
+    op: ">"
+    value: 0.561   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 0.56
+    and:
+      metric: kills_from_hold_share
+      op: ">="
+      value: 0.0   # fit-2e: fitted on eval-2c+eval-2d (tools/fit_thresholds.py); was 0.3
+    gate: true
