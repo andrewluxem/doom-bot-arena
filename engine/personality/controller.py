@@ -6,15 +6,30 @@ re-plans its goal on the nav graph (nav.py). Aim is limited by the three percept
 dials: reaction_time_ms before acting on a new sighting, aim_accuracy as angular jitter
 resampled each decision, and max_turn_deg_per_tic on every turn and pitch change.
 
+Milestone 2B mechanics, each driven by a sheet field (characters/README.md):
+  item timing      items.item_timing: respawn timers from own pickups and from item labels seen
+                   to vanish or reappear; item goals and roaming aim to arrive as an item respawns
+  retreat band     temperament.retreat_distance: inside it, back away from the target on a clear
+                   heading while still aiming
+  flank            temperament.flank: paths toward a known enemy cost more inside its facing cone,
+                   the goal moves behind it, and in a fight the bot strafes out of the cone
+  re-roll          ranges, reroll_interval_s, reroll_seed_from_match: every interval the dials under
+                   `ranges` are drawn again, from the match seed
+  melee, berserk   melee weapons fire only within reach; items.weights.berserk lures the bot to a
+                   berserk pack, which makes the fist its best weapon until it dies
+
 The RNG is seeded from (match seed, slot).
 """
 
+import copy
 import json
 import math
 import os
 import random
 
+from engine import items as itemfacts
 from engine import weapons
+from engine.geometry import EYE_HEIGHT, LineOfSight
 from engine.personality import fuzzy, nav, utility
 from engine.personality.ballistics import RocketCheck
 from engine.personality import spots as spotlib
@@ -27,7 +42,7 @@ RECENT_CONTACT = 6 * TICRATE
 JITTER_DEG = 10.0  # aim error standard deviation at aim_accuracy 0
 EYE = 41.0
 CHEST = 32.0
-ITEM_RESPAWN = 30 * TICRATE  # ZDoom deathmatch with sv_itemrespawn
+ITEM_RESPAWN = itemfacts.RESPAWN_TICS
 ITEM_VALUE = {"Stimpack": 10, "Medikit": 25, "HealthBonus": 1, "Soulsphere": 100, "Megasphere": 200,
               "GreenArmor": 100, "BlueArmor": 200, "ArmorBonus": 1}
 AMMO_ITEMS = {"pistol": ("Clip", "ClipBox"), "chaingun": ("Clip", "ClipBox"), "shotgun": ("Shell", "ShellBox"),
@@ -41,6 +56,20 @@ REPLAN_TICS = 3 * TICRATE
 GOAL_TIMEOUT = 20 * TICRATE
 LIFT_GIVE_UP = 8 * TICRATE
 BLOCK_TICS = 15 * TICRATE
+RUN_SPEED = 15.0  # units per tic for planning arrivals; a running player tops out near 16.7
+ITEM_VIEW = 1536  # how far an item-timing bot checks item places it can see
+ITEM_FOV = 42.0  # half-angle, inside the 45-degree half view so an item at the edge is not misread
+ITEM_LABEL_MATCH = 24
+TIMED_WAIT_MAX = 10 * TICRATE  # an item-timing bot will wait up to this long at an item
+WAIT_RADIUS = 40
+LURE_CLASSES = ("berserk",)  # one-off pickups a bot goes out of its way for when its sheet weights them
+LURE_WEIGHT = 0.5
+TOUCH = 36  # player half-size 16 + pickup radius 20: Doom touches boxes
+FLANK_CONE = 45.0  # half-angle of the target's view cone
+FLANK_RANGE = 1024
+FLANK_PENALTY = 3.0  # extra cost factor of path edges into the target's cone
+FLANK_REAR = 160  # the flank goal sits this far behind a known enemy
+RETREAT_PROBE = 96
 
 
 def wrap180(a):
@@ -79,13 +108,64 @@ class Dials:
         self.leave_no_contact_tics = (leave["no_contact_seconds"] * TICRATE) if "no_contact_seconds" in leave else None
         # How deep into its preferred range the bot pushes: an aggressive bot closes to rmin.
         self.desired_range = self.rmin + (self.rmax - self.rmin) * (1.0 - self.aggression)
+        self.retreat_distance = tm.get("retreat_distance")
+        self.flank = bool(tm.get("flank"))
+        self.item_timing = bool(sheet["items"].get("item_timing"))
+
+
+def with_values(sheet, values):
+    """A copy of the sheet with each dotted path in `values` set (re-rolled dials)."""
+    out = copy.deepcopy(sheet)
+    for path, v in values.items():
+        node, *rest = path.split(".")
+        cur = out
+        for key in [node] + rest[:-1]:
+            cur = cur[key]
+        cur[rest[-1] if rest else node] = v
+    return out
+
+
+def roll(sheet, rng):
+    """One draw of every dial under the sheet's `ranges`, uniform in its [low, high]."""
+    return {path: round(rng.uniform(lo, hi), 3) for path, (lo, hi) in sorted((sheet.get("ranges") or {}).items())}
+
+
+def observe_item(it, t, there):
+    """Update an item's respawn window from one look at its place. `back`..`back_hi` is when it can
+    reappear; `seen` the last tic it was seen in place (None once it is known to be gone)."""
+    if there:
+        it["seen"] = t
+        if it["back_hi"] > t:
+            it["back"] = it["back_hi"] = t
+    elif it["back_hi"] <= t:  # believed there, and it is not: taken since it was last seen
+        it["back"] = max(t, it["seen"] + ITEM_RESPAWN) if it["seen"] is not None else t
+        it["back_hi"] = t + ITEM_RESPAWN
+        it["seen"] = None
+    else:  # known to be gone, and still gone: not back before now
+        it["back"] = max(it["back"], t)
+
+
+def expected_back(it):
+    """When a timing bot expects the item: the respawn tic if known, else the middle of its window."""
+    return (it["back"] + it["back_hi"]) / 2.0
+
+
+def in_cone(px, py, cx, cy, facing, half=FLANK_CONE):
+    """Is (px, py) inside the view cone of a player at (cx, cy) facing `facing` degrees?"""
+    return abs(wrap180(bearing(cx, cy, px, py) - facing)) < half
 
 
 class PersonalityBot:
     def __init__(self, slot, sheet, seed, map_data, cache_dir=None):
         self.slot, self.code = slot, sheet["code"]
+        self.sheet = sheet
         self.d = Dials(sheet)
         self.rng = random.Random(f"{seed}:{slot}")
+        interval = sheet.get("reroll_interval_s")
+        self.reroll_tics = round(interval * TICRATE) if interval and sheet.get("ranges") else None
+        self.reroll_seed = f"{seed}:{slot}:reroll" if sheet.get("reroll_seed_from_match") else None
+        self.roll_epoch, self.rolls = 0, []
+        self.berserk = False
         self.identity = None  # set by engine/player.py; used only by perception
         self.graph = nav.load(map_data, cache_dir)
         self.resolved = weapons.resolve(self.d.allowed, self.d.weapon_weights, map_data["weapons_present"])
@@ -101,8 +181,16 @@ class PersonalityBot:
         node = lambda x, y: self.graph.nearest(x, y, max_dist=128, need_clear=False)
         self.weapon_things = [(w["name"], w["x"], w["y"], node(w["x"], w["y"]))
                               for w in map_data["weapons"] if w["in_deathmatch"]]
-        self.items = [{"name": i["name"], "class": i["class"], "x": i["x"], "y": i["y"], "back": 0,
-                       "node": node(i["x"], i["y"])} for i in map_data.get("items", []) if i["in_deathmatch"]]
+        # back: earliest tic the item can be there; back_hi: latest; seen: last tic it was seen in place
+        self.items = [{"name": i["name"], "class": i["class"], "x": i["x"], "y": i["y"], "back": 0, "back_hi": 0,
+                       "seen": None, "node": node(i["x"], i["y"])} for i in map_data.get("items", []) if i["in_deathmatch"]]
+        self.sight = None
+        if self.d.item_timing:
+            self.sight = LineOfSight(map_data)
+            for it in self.items:
+                n = it["node"]
+                it["z"] = self.graph.floor[self.graph.nodes[n][2]] if n is not None else 0.0
+        self.wait_item = None  # the item a timing bot is waiting at for its respawn
         self.attractors = ([(s["x"], s["y"], node(s["x"], s["y"])) for s in map_data["deathmatch_starts"]]
                            + [(w[1], w[2], w[3]) for w in self.weapon_things])
         for c in self.spot_cands:
@@ -141,10 +229,14 @@ class PersonalityBot:
         if not self.alive:
             self._on_spawn(t)
         self.alive = True
+        if self.reroll_tics and t // self.reroll_tics != self.roll_epoch:
+            self._reroll(t, t // self.reroll_tics)
         self.perc.update(t, st, self.identity, x, y)
         self._watch_self(t, v, x, y)
         if (t * 10) // TICRATE != ((t - 1) * 10) // TICRATE or self.scores is None:
             self._read_live(st)
+            if self.d.item_timing:
+                self._observe_items(t, st, x, y, z, ang)
             self._decide(t, v, x, y)
         cmds = self.armory.select(t, self.weapon_choice, v)
         action = self._execute(t, v, x, y, z, ang)
@@ -160,6 +252,18 @@ class PersonalityBot:
             self.spot_log[-1]["to_tic"] = n_tics - 1
         with open(os.path.join(outdir, "spots_chosen.json"), "w") as f:
             json.dump(self.spot_log, f)
+        if self.reroll_tics:
+            with open(os.path.join(outdir, "rerolls.json"), "w") as f:
+                json.dump(self.rolls, f)
+
+    def _reroll(self, t, epoch):
+        """Draw the dials under `ranges` again: from (match seed, slot, epoch) when the sheet says so, so
+        a replay draws the same values at the same tics. The sheet's own values hold until the first roll."""
+        rng = random.Random(f"{self.reroll_seed}:{epoch}") if self.reroll_seed else random.Random()
+        values = roll(self.sheet, rng)
+        self.d = Dials(with_values(self.sheet, values))
+        self.roll_epoch = epoch
+        self.rolls.append({"tic": t, "epoch": epoch, "values": values})
 
     # ------------------------------------------------------------------ lifecycle
     def _on_spawn(self, t):
@@ -167,7 +271,7 @@ class PersonalityBot:
         self.target, self.engaging, self.weapon_choice = None, False, None
         self.goal, self.path, self.spot, self.at_spot = None, None, None, False
         self.prev, self.trail, self.stuck_count = None, [], 0
-        self.scores = None
+        self.scores, self.berserk, self.wait_item = None, False, None
 
     def _on_death(self, t):
         self._close_spot(t - 1)
@@ -199,6 +303,12 @@ class PersonalityBot:
                 self._mark_taken(t, x, y, "ammo")
             if cur[0] < hp0 and not self.perc.visible():
                 self.look_back_until, self.look_back_dir = t + 25, v["ANGLE"] + 180.0
+        for it in self.items:
+            # a berserk pack is picked up on touch whatever the health, so it shows in no counter
+            if it["class"] == "berserk" and it["back"] <= t and abs(it["x"] - x) < TOUCH and abs(it["y"] - y) < TOUCH:
+                self.berserk = True
+                it["back"] = it["back_hi"] = t + ITEM_RESPAWN
+                it["seen"] = None
         self.prev = cur
         self.trail.append((x, y))
         if len(self.trail) > 24:
@@ -211,7 +321,27 @@ class PersonalityBot:
             if it["class"] == cls and d < 64 and (best is None or d < best[0]):
                 best = (d, it)
         if best:
-            best[1]["back"] = t + ITEM_RESPAWN
+            best[1]["back"] = best[1]["back_hi"] = t + ITEM_RESPAWN
+            best[1]["seen"] = None
+
+    def _observe_items(self, t, st, x, y, z, ang):
+        """Item timing: item places in view (inside the view cone, in line of sight) either show the item's
+        label or not. One seen to vanish was taken since it was last seen, so it is back within that window
+        plus 30 s; one seen in place is back now."""
+        labels = {}
+        for lab in st.labels or []:
+            labels.setdefault(lab.object_name, []).append((lab.object_position_x, lab.object_position_y))
+        eye = z + EYE_HEIGHT
+        for it in self.items:
+            if it["name"] not in itemfacts.TIMED and it["class"] not in LURE_CLASSES:
+                continue
+            d = math.hypot(it["x"] - x, it["y"] - y)
+            if d > ITEM_VIEW or (d > 24 and abs(wrap180(bearing(x, y, it["x"], it["y"]) - ang)) > ITEM_FOV):
+                continue
+            if d > 24 and not self.sight.clear(x, y, eye, it["x"], it["y"], it["z"], it["z"] + 16, live=self.heights):
+                continue
+            there = any(math.hypot(lx - it["x"], ly - it["y"]) <= ITEM_LABEL_MATCH for lx, ly in labels.get(it["name"], ()))
+            observe_item(it, t, there)
 
     # ------------------------------------------------------------------ decide (10 Hz)
     def _decide(self, t, v, x, y):
@@ -228,9 +358,10 @@ class PersonalityBot:
 
         usable = [w for w in self.resolved if self.armory.usable(w, v)]
         has_usable = bool(usable)
-        armed = any(d.weapon_weights.get(w, 0) >= 0.5 * self.best_weight for w in usable)
+        # armed: holds a weapon its sheet rates above half its best (a fist at 0.5 under a chainsaw at 1.0 is not)
+        armed = any(d.weapon_weights.get(w, 0) > 0.5 * self.best_weight for w in usable)
         choice, _ = fuzzy.choose(usable, d.weapon_weights, dist if dist is not None else d.desired_range,
-                                 lambda w: self.armory.ammo(w, v), current=self.weapon_choice)
+                                 lambda w: self.armory.ammo(w, v), current=self.weapon_choice, berserk=self.berserk)
         self.weapon_choice = choice
 
         cornered = target is not None and dist < max(d.rmin, 128.0)
@@ -274,14 +405,29 @@ class PersonalityBot:
             self.strafe = self.rng.choice((-1, 1)) if self.rng.random() < d.aggression else 0
 
     def _offer(self, t, x, y, cls, need):
-        """0..1: value of the best available item of a class, discounted by straight-line distance."""
+        """0..1: value of the best available item of a class, discounted by straight-line distance.
+        An item-timing bot also counts items due back by the time it could get there, the wait added."""
         best = 0.0
         for it in self.items:
-            if it["class"] != cls or it["back"] > t:
+            if it["class"] != cls:
+                continue
+            dist = math.hypot(it["x"] - x, it["y"] - y)
+            wait = self._wait(t, it, dist / RUN_SPEED)
+            if wait is None:
                 continue
             gain = min(ITEM_VALUE.get(it["name"], 10), max(0, need))
-            best = max(best, min(1.0, gain / 25.0) * math.exp(-math.hypot(it["x"] - x, it["y"] - y) / 1500.0))
+            best = max(best, min(1.0, gain / 25.0) * math.exp(-(dist + RUN_SPEED * wait) / 1500.0))
         return best
+
+    def _wait(self, t, it, eta):
+        """Tics the bot would wait at the item after arriving in `eta` tics, or None if it will not be there.
+        Without item timing an item counts only when the bot believes it is there now."""
+        if not self.d.item_timing:
+            return 0.0 if it["back"] <= t else None
+        due = expected_back(it)
+        if due > t + eta + TIMED_WAIT_MAX:
+            return None
+        return max(0.0, due - (t + eta))
 
     # ------------------------------------------------------------------ spots
     def _manage_spot(self, t, x, y, health, has_usable):
@@ -338,14 +484,17 @@ class PersonalityBot:
             goal, tag = self._weapon_goal(t, x, y)
         if goal is None and b not in ("IN_COMBAT", "FLEEING") and usable and self._ammo_low(v, usable):
             goal, tag = self._item_goal(t, x, y, names=set(sum((AMMO_ITEMS.get(w, ()) for w in usable), ())) | {"Backpack"})
+        if goal is None and b in ("ROAMING", "HUNTING") and (b == "ROAMING" or latest is None
+                                                             or t - latest.last_seen > RECENT_CONTACT):
+            goal, tag = self._lure_goal(t, x, y)
         if goal is None:
             if b == "IN_COMBAT":
                 if self.target is not None and not self.target.visible:
-                    goal, tag = self.target.position_at(t), "last_seen"
+                    goal, tag = self._enemy_goal(t, self.target), "last_seen"
             elif b == "HUNTING":
                 if (latest is not None and t - latest.last_seen <= RECENT_CONTACT
                         and self.searched.get(latest.key) != latest.last_seen):
-                    goal, tag = latest.position_at(t), f"hunt:{latest.key}"
+                    goal, tag = self._enemy_goal(t, latest), f"hunt:{latest.key}"
                     if math.hypot(goal[0] - x, goal[1] - y) < 64 or (self.goal_tag == tag and self.goal_unreachable):
                         # got there and nobody is in view, or there is no way there (seen through a window)
                         self.searched[latest.key] = latest.last_seen
@@ -355,7 +504,15 @@ class PersonalityBot:
                 else:
                     goal, tag = self._random_attractor(t, x, y), "hunt"
             elif b == "ROAMING":
-                if self.goal_tag == "roam" and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
+                if self.d.item_timing:
+                    held = self._item_at(self.goal) if self.goal_tag == "item:timed" else None
+                    if held is not None and held["back_hi"] > t and t - self.goal_set_at < GOAL_TIMEOUT + TIMED_WAIT_MAX:
+                        goal, tag = self.goal, "item:timed"  # keep the item being timed until it is back
+                    else:
+                        goal, tag = self._timed_item_goal(t, x, y)
+                if goal is not None:
+                    pass
+                elif self.goal_tag == "roam" and self.goal is not None and t - self.goal_set_at < GOAL_TIMEOUT:
                     goal, tag = self.goal, "roam"
                 else:
                     goal, tag = self._random_attractor(t, x, y), "roam"
@@ -369,6 +526,7 @@ class PersonalityBot:
                 goal, tag = self._item_goal(t, x, y, cls="health", need=100 - v["HEALTH"])
                 if goal is None:
                     goal, tag = self._away_from_threat(t, x, y), "flee"
+        self.wait_item = self._item_at(goal) if self.d.item_timing and tag and tag.startswith("item:") else None
         if goal is None:
             self.goal, self.goal_tag, self.path = None, None, None
             return
@@ -378,8 +536,24 @@ class PersonalityBot:
         elif t - self.planned_at > REPLAN_TICS:
             self._plan(t, x, y)
 
+    def _flank_penalty(self, t):
+        """Flank: path edges into the view cone of the enemy being approached cost more."""
+        c = self.target if self.goal_tag == "last_seen" else None
+        if self.goal_tag and self.goal_tag.startswith("hunt:"):
+            c = next((k for k in self.perc.contacts.values() if f"hunt:{k.key}" == self.goal_tag), None)
+        if not self.d.flank or c is None or c.angle is None:
+            return None
+        cx, cy = c.position_at(t)
+        nodes, facing = self.graph.nodes, c.angle
+
+        def penalty(v):
+            nx, ny = nodes[v][0], nodes[v][1]
+            near = abs(nx - cx) < FLANK_RANGE and abs(ny - cy) < FLANK_RANGE
+            return FLANK_PENALTY if near and in_cone(nx, ny, cx, cy, facing) else 0.0
+        return penalty
+
     def _weapon_goal(self, t, x, y):
-        want = [w for w in self.resolved if self.d.weapon_weights.get(w, 0) >= 0.5 * self.best_weight
+        want = [w for w in self.resolved if self.d.weapon_weights.get(w, 0) > 0.5 * self.best_weight
                 and w not in self.armory.owned]
         reach = self._reach(t, x, y)
         best = None
@@ -393,18 +567,72 @@ class PersonalityBot:
             and any(w in fuzzy.AMMO for w in usable)
 
     def _item_goal(self, t, x, y, cls=None, names=None, need=100):
+        """Best item by gain over path cost. An item-timing bot also weighs items due back by the time it
+        arrives, the wait counted as distance."""
         reach = self._reach(t, x, y)
         best = None
         for it in self.items:
-            if it["back"] > t or (cls and it["class"] != cls) or (names and it["name"] not in names):
+            if (cls and it["class"] != cls) or (names and it["name"] not in names) or it["node"] not in reach:
                 continue
-            if it["node"] not in reach:
+            wait = self._wait(t, it, reach[it["node"]] / RUN_SPEED)
+            if wait is None:
                 continue
             gain = min(ITEM_VALUE.get(it["name"], 10), max(1, need)) if cls else 10
-            u = gain / (reach[it["node"]] + 200.0)
+            u = gain / (reach[it["node"]] + 200.0 + RUN_SPEED * wait)
             if best is None or u > best[0]:
                 best = (u, (it["x"], it["y"]))
         return (best[1], f"item:{cls or 'ammo'}") if best else (None, None)
+
+    def _timed_item_goal(self, t, x, y):
+        """Roaming, an item-timing bot heads for the timed item it can reach closest to its respawn,
+        weighted by its sheet's item weights; items already standing do not draw it."""
+        reach = self._reach(t, x, y)
+        best = None
+        for it in self.items:
+            if it["name"] not in itemfacts.TIMED or it["node"] not in reach or it["back_hi"] <= t:
+                continue
+            eta = reach[it["node"]] / RUN_SPEED
+            wait = self._wait(t, it, eta)
+            weight = self.d.item_weights.get(it["class"], 0.0)
+            if wait is None or weight <= 0:
+                continue
+            u = weight * ITEM_VALUE.get(it["name"], 10) / (reach[it["node"]] + 200.0 + RUN_SPEED * wait)
+            if best is None or u > best[0]:
+                best = (u, (it["x"], it["y"]))
+        return (best[1], "item:timed") if best else (None, None)
+
+    def _item_at(self, goal):
+        if goal is None:
+            return None
+        return next((it for it in self.items if it["x"] == goal[0] and it["y"] == goal[1]), None)
+
+    def _lure_goal(self, t, x, y):
+        """A berserk pack (LURE_CLASSES) the sheet weights at LURE_WEIGHT or more, while the bot lacks it.
+        Arriving where one should be without picking it up shows it is gone: it is back within 30 s."""
+        reach = self._reach(t, x, y)
+        best = None
+        for it in self.items:
+            if it["class"] not in LURE_CLASSES or self.d.item_weights.get(it["class"], 0.0) < LURE_WEIGHT:
+                continue
+            if self.berserk or it["back"] > t or it["node"] not in reach:
+                continue
+            if math.hypot(it["x"] - x, it["y"] - y) < 12:
+                it["back"] = max(it["back"], t + ITEM_RESPAWN // 2)
+                it["back_hi"] = max(it["back_hi"], t + ITEM_RESPAWN)
+                continue
+            if best is None or reach[it["node"]] < best[0]:
+                best = (reach[it["node"]], (it["x"], it["y"]))
+        return (best[1], "item:lure") if best else (None, None)
+
+    def _enemy_goal(self, t, c):
+        """Where to look for a known enemy: where it is expected, or for a flanker a point behind it."""
+        cx, cy = c.position_at(t)
+        if not self.d.flank or c.angle is None:
+            return cx, cy
+        a = math.radians(c.angle)
+        rx, ry = cx - FLANK_REAR * math.cos(a), cy - FLANK_REAR * math.sin(a)
+        n = self.graph.nearest(rx, ry, max_dist=96)
+        return (rx, ry) if n is not None and self.graph.move_check((cx, cy), (rx, ry)) is not None else (cx, cy)
 
     def _random_attractor(self, t, x, y):
         reach = self._reach(t, x, y)
@@ -433,7 +661,7 @@ class PersonalityBot:
         goal = g.nearest(self.goal[0], self.goal[1], max_dist=256, need_clear=False)
         allow = nav.USABLE_KINDS if t >= self.lift_blocked_until else nav.USABLE_KINDS - {"lift"}
         blocked = {e for e, until in self.blocked.items() if until > t}
-        self.path = g.astar(start, goal, live=self.live, allow=allow, blocked=blocked)
+        self.path = g.astar(start, goal, live=self.live, allow=allow, blocked=blocked, penalty=self._flank_penalty(t))
         self.path_i = 0
         self.goal_unreachable = self.path is None and g.move_check((x, y), self.goal) is None
 
@@ -462,6 +690,12 @@ class PersonalityBot:
             if face is None:
                 sweep = 30.0 * math.sin(2 * math.pi * (t - (self.spot_since or t)) / (5 * TICRATE))
                 face = self.spot["watch_angle"] + sweep
+        elif self._waiting(t, x, y):
+            # on the item's place until it respawns: an item that appears under a standing player is
+            # picked up only when that player moves, so step side to side
+            move, run = ang + (90.0 if (t // 4) % 2 else -90.0), False
+            if face is None:
+                face = ang
         else:
             move = self._follow(t, x, y, action)
             if move is not None and self.spot is not None and self.goal_tag == f"spot:{self.spot['id']}":
@@ -511,7 +745,8 @@ class PersonalityBot:
             if run:
                 action["SPEED"] = 1
 
-        if aim is not None and self.armory.chosen is not None and self.armory.ready(v):
+        if (aim is not None and self.armory.chosen is not None and self.armory.ready(v)
+                and fuzzy.in_reach(self.armory.chosen, aim["dist"])):
             err_yaw = abs(wrap180(aim["yaw"] - new_ang))
             err_pitch = abs(want_pitch - (up + dp))
             if err_yaw <= aim["tol"] and err_pitch <= 6.0 and not aim["unsafe"]:
@@ -553,23 +788,48 @@ class PersonalityBot:
             return bearing(x, y, sx, sy) + 180.0, False
         return bearing(x, y, sx, sy), dist > 128
 
+    def _waiting(self, t, x, y):
+        it = self.wait_item
+        return (it is not None and self.behavior != "IN_COMBAT" and it["back_hi"] > t
+                and math.hypot(it["x"] - x, it["y"] - y) < WAIT_RADIUS)
+
     def _combat_move(self, t, x, y):
-        """Close to the dial-set range (aggression pushes toward rmin), strafing per aggression."""
+        """Close to the dial-set range (aggression pushes toward rmin), strafing per aggression.
+        Inside the retreat band, back straight off on a clear heading. A flanker inside its target's
+        view cone strafes toward the cone's nearer edge instead of at random."""
         d = self.d
         cx, cy = self.target.position_at(t)
         dist = math.hypot(cx - x, cy - y)
         to = bearing(x, y, cx, cy)
+        if d.retreat_distance is not None and dist < d.retreat_distance:
+            away = self._clear_heading(x, y, to + 180.0)
+            if away is not None:
+                return away
         fx = fy = 0.0
         if dist > d.desired_range + 32:
             fx, fy = math.cos(math.radians(to)), math.sin(math.radians(to))
         elif dist < d.desired_range - 32:
             fx, fy = -math.cos(math.radians(to)), -math.sin(math.radians(to))
-        if self.strafe:
-            s = math.radians(to + 90.0 * self.strafe)
+        strafe = self.strafe
+        c = self.target
+        if d.flank and c.angle is not None and in_cone(x, y, cx, cy, c.angle):
+            # circle out of the cone the short way: counter-clockwise round the target (heading to - 90,
+            # strafe -1) when the bot is on its left, clockwise when on its right
+            strafe = -1 if wrap180(bearing(cx, cy, x, y) - c.angle) >= 0 else 1
+        if strafe:
+            s = math.radians(to + 90.0 * strafe)
             fx, fy = fx + math.cos(s), fy + math.sin(s)
         if abs(fx) < 1e-6 and abs(fy) < 1e-6:
             return None
         return math.degrees(math.atan2(fy, fx))
+
+    def _clear_heading(self, x, y, want):
+        """The heading nearest `want` (within 90 degrees) along which the bot can walk RETREAT_PROBE units."""
+        for off in (0, 30, -30, 60, -60, 90, -90):
+            h = math.radians(want + off)
+            if self.graph.move_check((x, y), (x + RETREAT_PROBE * math.cos(h), y + RETREAT_PROBE * math.sin(h))) is not None:
+                return want + off
+        return None
 
     def _follow(self, t, x, y, action):
         """Heading along the planned path; handles doors (USE), lifts (wait, USE) and teleporters."""

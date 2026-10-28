@@ -4,6 +4,11 @@ name: Pyre
 archetype: flanker
 colorset: 6
 
+# Dial re-rolls (ZED's mechanic): none.
+reroll_interval_s: null
+reroll_seed_from_match: false
+ranges: null
+
 perception:
   reaction_time_ms: 140
   aim_accuracy: 0.7
@@ -15,6 +20,7 @@ temperament:
   engage_health_min: 30
   preferred_range: [64, 256]
   flank: true   # path scoring penalizes approaching inside the target's view cone
+  retreat_distance: null
 
 behavior_weights:
   HUNTING: 0.8

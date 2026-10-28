@@ -4,6 +4,11 @@ name: Orbit
 archetype: kiter
 colorset: 4
 
+# Dial re-rolls (ZED's mechanic): none.
+reroll_interval_s: null
+reroll_seed_from_match: false
+ranges: null
+
 perception:
   reaction_time_ms: 130
   aim_accuracy: 0.75
@@ -15,6 +20,7 @@ temperament:
   engage_health_min: 25
   preferred_range: [400, 800]
   retreat_distance: 350   # backs off while firing when an enemy is closer than this
+  flank: false
 
 behavior_weights:
   HUNTING: 0.5

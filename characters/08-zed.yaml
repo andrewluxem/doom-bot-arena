@@ -18,6 +18,8 @@ temperament:
   self_preservation: 0.2
   engage_health_min: 0
   preferred_range: [0, 400]
+  retreat_distance: null
+  flank: false
 
 behavior_weights:
   HUNTING: 0.8

@@ -328,9 +328,10 @@ class NavGraph:
                 return i
         return min(cands)[1] if cands else None
 
-    def astar(self, start, goal, live=None, allow=USABLE_KINDS, blocked=()):
+    def astar(self, start, goal, live=None, allow=USABLE_KINDS, blocked=(), penalty=None):
         """Node path start..goal, or None. remote_door edges need the sector open in `live`;
-        `blocked` holds (u, v) edges to skip (where the bot got stuck)."""
+        `blocked` holds (u, v) edges to skip (where the bot got stuck). `penalty(v)` >= 0 scales the
+        cost of edges into v by 1 + penalty(v), so the heuristic stays admissible."""
         if start is None or goal is None:
             return None
         gx, gy, _ = self.nodes[goal]
@@ -354,7 +355,7 @@ class NavGraph:
                     continue
                 if (u, v) in blocked:
                     continue
-                ng = g + c
+                ng = g + (c * (1.0 + penalty(v)) if penalty is not None else c)
                 if ng < cost.get(v, math.inf):
                     cost[v], came[v] = ng, u
                     heapq.heappush(openq, (ng + h(v), ng, v))
