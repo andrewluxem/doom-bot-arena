@@ -4,11 +4,24 @@ import { fmtClock, loadBundle, loadIndex } from './bundle.js';
 import { Clock } from './clock.js';
 import { MapView } from './map.js';
 import * as R from './render.js';
+import * as S from './season.js';
 import { VideoSync } from './sync.js';
 import { Timeline } from './timeline.js';
 
 const PHONE = '(max-width: 720px)';
 const THEME_KEY = 'dba-theme';
+const FOOT = 18 + 6; // pipeline footer height plus its gap, out of the desktop height budget
+/* Production bundles live on Vercel Blob (index.json and status.json at the store root); without the build-time
+   base, the viewer reads the committed sample index next to it. */
+const BLOB_BASE = (import.meta.env.VITE_BLOB_PUBLIC_BASE || '').replace(/\/+$/, '');
+
+async function loadStatus() {
+  if (!BLOB_BASE) return null;
+  try {
+    const r = await fetch(`${BLOB_BASE}/status.json`, { cache: 'no-cache' });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
 
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
@@ -37,12 +50,13 @@ export async function boot(root) {
   } catch { /* storage blocked: stay dark */ }
   root.innerHTML = '<div class="boot"><span class="kick">LOADING BUNDLE</span></div>';
   try {
-    const indexUrl = new URL('index.json', location.href);
+    const indexUrl = BLOB_BASE ? new URL(`${BLOB_BASE}/index.json`) : new URL('index.json', location.href);
+    const status = loadStatus();
     const index = await loadIndex(indexUrl);
     const hash = readHash();
     const entry = index.bundles.find((b) => b.id === hash.b) || index.bundles[0];
     const B = await loadBundle(new URL(entry.path, indexUrl));
-    const app = new App(root, B, index, await videoSources(B), hash);
+    const app = new App(root, B, index, await videoSources(B), hash, { status: await status, source: BLOB_BASE ? 'blob' : 'sample' });
     window.__dba = app.debug();
   } catch (e) {
     console.error(e);
@@ -51,10 +65,12 @@ export async function boot(root) {
 }
 
 class App {
-  constructor(root, B, index, srcs, hash) {
+  constructor(root, B, index, srcs, hash, pipeline) {
     this.root = root;
     this.B = B;
     this.index = index;
+    this.pipeline = pipeline;
+    this.sheetOpen = false;
     this.clock = new Clock(B.rate, B.f0, B.total - 1);
     this.ctx = { B, f0: B.f0, rate: B.rate, tic: B.f0, shownNow: [] };
     this.mode = 'multi';
@@ -100,6 +116,7 @@ class App {
       + '<div class="vt-dim"></div><header class="t-hd"></header><div class="vt-resp"></div><footer class="t-ft"></footer></div>';
     const video = el.querySelector('video');
     video.muted = true;
+    video.crossOrigin = 'anonymous'; // Blob-hosted feeds stay readable (frame checks, canvas) under its ACAO *
     video.src = src;
     el.addEventListener('click', () => this.focusBot(slot));
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.focusBot(slot); });
@@ -127,6 +144,7 @@ class App {
   topBar(phone) {
     const m = this.B.match, sub = `DEATHMATCH · 8 BOTS · ${R.esc(m.map)} · ${fmtClock(this.B.n / this.B.rate)}`;
     const buttons = '<div class="tb"><button class="tb-btn" type="button" data-act="play"></button>'
+      + `<button class="tb-btn" type="button" data-act="matches" aria-expanded="${this.sheetOpen}">MATCHES <kbd>L</kbd></button>`
       + '<button class="tb-btn" type="button" data-act="theme"></button></div>';
     if (phone) {
       return `<header class="ph-top"><span class="brand-t">DOOM BOT ARENA</span><div class="clk"></div>${buttons}</header>`
@@ -167,7 +185,9 @@ class App {
     this.phone = phone;
     const L = document.createElement('div');
     L.className = `L L-${phone ? 'phone' : 'desk'} L-${mode}`;
-    L.innerHTML = this.topBar(phone) + this.skeleton(phone, mode);
+    const foot = `<footer class="a-foot" aria-label="Pipeline status">${S.footer(this.pipeline.status, this.pipeline.source)}</footer>`;
+    L.innerHTML = this.topBar(phone) + this.skeleton(phone, mode) + (phone ? '' : foot) + this.sheet(phone);
+    if (phone) L.querySelector('.ph-scroll')?.insertAdjacentHTML('beforeend', foot);
     this.root.appendChild(L);
     const put = (k) => L.querySelector(`[data-put="${k}"]`);
     const thumb = mode !== 'multi' || phone ? 'xs' : 'm';
@@ -194,10 +214,20 @@ class App {
     this.writeHash();
   }
 
+  /* Match list and season table, over the layout below the top bar; picking a match loads it via the hash. */
+  sheet(phone) {
+    if (!this.sheetOpen) return '';
+    return `<div class="ml-sheet${phone ? ' ml-sheet--phone' : ''}" role="dialog" aria-label="Matches and season standings">`
+      + '<div class="ml-hd"><span class="kick">MATCHES</span><button class="tb-btn" type="button" data-act="matches">CLOSE <kbd>ESC</kbd></button></div>'
+      + `<div class="ml-body"><section class="panel ml-panel">${S.matchList(this.index, this.B.match.id)}</section>`
+      + `<section class="panel ml-panel ss-panel">${S.seasonTable(this.index)}</section></div>`
+      + `<footer class="a-foot">${S.footer(this.pipeline.status, this.pipeline.source)}</footer></div>`;
+  }
+
   /* Desktop sizes that CSS can't derive: the 4x2 wall fills the width unless the dock would drop under 180px. */
   size() {
     if (!this.L || this.phone) return;
-    const W = innerWidth, H = innerHeight, s = this.L.style, top = 56, frame = 16, gap = 6;
+    const W = innerWidth, H = innerHeight - FOOT, s = this.L.style, top = 56, frame = 16, gap = 6;
     if (this.mode === 'multi') {
       const budget = H - frame - top - 2 * gap - 180;
       const tile = Math.max(100, Math.min((W - frame - 12) / 4, ((budget - 4) / 2 - 2) * (4 / 3) + 2));
@@ -327,6 +357,7 @@ class App {
     else if (k === 'map') this.toggleMap();
     else if (k === 'return') this.back();
     else if (k === 'drawer') { this.drawerOpen = !this.drawerOpen; this.layout(); }
+    else if (k === 'matches') this.toggleSheet();
   }
 
   key(e) {
@@ -334,7 +365,8 @@ class App {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
     if (/^[1-8]$/.test(e.key)) { e.preventDefault(); this.focusBot(+e.key); }
-    else if (e.key === 'Escape') this.back();
+    else if (e.key === 'Escape') { if (this.sheetOpen) this.toggleSheet(); else this.back(); }
+    else if (e.key === 'l' || e.key === 'L') this.toggleSheet();
     else if (e.key === 'm' || e.key === 'M') this.toggleMap();
     else if (e.key === ' ' && tag !== 'BUTTON') { e.preventDefault(); this.togglePlay(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -343,6 +375,11 @@ class App {
       this.seek(Math.floor(this.clock.now()) + step, false);
       if (this.clock.playing) this.pause();
     }
+  }
+
+  toggleSheet() {
+    this.sheetOpen = !this.sheetOpen;
+    this.layout();
   }
 
   toggleTheme() {
@@ -383,7 +420,7 @@ class App {
   debug() {
     const app = this;
     return {
-      bundle: app.B.match.id, f0: app.B.f0, n: app.B.n, rate: app.B.rate,
+      bundle: app.B.match.id, base: String(app.B.base), f0: app.B.f0, n: app.B.n, rate: app.B.rate,
       tic: () => app.clock.now(), playing: () => app.clock.playing, busy: () => app.sync.busy,
       play: () => app.sync.play(), pause: () => app.pause(), seek: (t, resume) => app.sync.seek(t, resume),
       stats: () => app.sync.stats.map((s) => ({ ...s, last: s.last && { ...s.last } })),
@@ -391,7 +428,8 @@ class App {
       seeks: () => [...app.sync.seekLog], stalls: () => app.sync.stalls, mapMax: () => app.metrics.mapMax,
       markers: () => app.map.hits.map((h) => ({ ...h })), mode: () => ({ mode: app.mode, focus: app.focus }),
       videos: () => app.tiles.map((t) => ({ slot: t.slot, currentTime: t.video.currentTime, paused: t.video.paused, readyState: t.video.readyState })),
-      logDrift: () => app.logDrift(), scoreCheck: app.B.scoreCheck,
+      logDrift: () => app.logDrift(), scoreCheck: app.B.scoreCheck, source: app.pipeline.source,
+      openSheet: () => { if (!app.sheetOpen) app.toggleSheet(); }, closeSheet: () => { if (app.sheetOpen) app.toggleSheet(); },
     };
   }
 }

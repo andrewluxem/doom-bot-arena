@@ -1,0 +1,13 @@
+# Installed by `make install-timer`, which fills in the repo path. Logs: journalctl --user -u dba-produce
+[Unit]
+Description=Doom Bot Arena: play, validate and publish one match
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+ExecStart=/usr/bin/make produce
+# A five-minute match takes about six minutes with re-encoding, validation and upload; this bounds a hung one.
+TimeoutStartSec=60min
+Nice=5

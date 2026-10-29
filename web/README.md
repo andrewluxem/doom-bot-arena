@@ -13,7 +13,9 @@ python3 -m http.server -d dist 8000   # any static server works
 
 ## Bundles
 
-`public/index.json` lists `{id, map, iwad, date, duration_tics, path}` per bundle; the viewer opens the one named in the URL hash, else the first. To add one:
+**Production (milestone 3):** at build time, `VITE_BLOB_PUBLIC_BASE` (set in `.env.production` and in the Vercel project) points the viewer at the Vercel Blob store that `tools/produce.py` publishes to. The viewer reads `<base>/index.json`, `<base>/status.json` and `<base>/bundles/<id>/`. Build with `VITE_BLOB_PUBLIC_BASE= npm run build` to use the committed sample instead. See `docs/PRODUCTION.md`.
+
+**Sample:** `public/index.json` lists `{id, map, iwad, date, duration_tics, path}` per bundle; the viewer opens the one named in the URL hash, else the first. To add one:
 
 ```
 python3 tools/export_sample.py bundles/<id>     # from the repo root; run it in the match image for the same ffmpeg
@@ -27,7 +29,8 @@ The exporter copies the bundle (with `spots.json` for schema 2) to `public/sampl
 |---|---|
 | `1`–`8`, click a tile or a map marker | focus that bot |
 | `M`, click the map | expand or collapse the map |
-| `ESC` | back to the multiview (or collapse the map) |
+| `L`, the MATCHES button | match list and season table; pick a match to load it |
+| `ESC` | close the match list, else back to the multiview (or collapse the map) |
 | `Space` | play or pause |
 | `←` `→` (`Shift`: 1 s) | step one tic |
 | timeline | click a tick to seek to that frag; drag to scrub |
@@ -52,6 +55,7 @@ Servers without byte ranges (`python3 -m http.server`) cannot seek MP4s. The vie
 ```
 npm run build && npm run acceptance -- --bundle 20261028T042416Z-MAP01-s1234 --event 473   # milestone 1B sample
 npm run acceptance -- --bundle <milestone 2 sample id>                                       # schema 2 sample
+npm run acceptance                                                   # production build: the newest Blob bundle
 # Google Chrome; serves dist/ with python3 -m http.server
 python3 scripts/contrast.py public/sample/<id>       # numpy + ffmpeg
 ```
@@ -62,7 +66,8 @@ python3 scripts/contrast.py public/sample/<id>       # numpy + ffmpeg
 - one frag event on the map, in the kill feed, in the killer's tile, and in the killer's POV frame (pixel-matched against ffmpeg's decode);
 - the keys and clicks without a reload;
 - the 390x844 phone layout;
-- on a schema 2 bundle, the focused bot's telemetry shows its selected weapon by name, its target and its sector.
+- on a schema 2 bundle, the focused bot's telemetry shows its selected weapon by name, its target and its sector;
+- with no hash, the newest indexed match opens; the match list lists every entry newest first; the season table sums the index standings; the footer shows the pipeline status.
 
 `scripts/contrast.py` measures tile text over every frame of the eight videos.
 
@@ -81,6 +86,11 @@ python3 scripts/contrast.py public/sample/<id>       # numpy + ffmpeg
   - **Target** is `target_slot`: the player the bot is engaging, with its colour swatch, id and code.
   - **Sector** is the engine sector id, with its floor height from `map.json`. The design's named zones do not exist in the data, so none are shown.
   - **Spot**: for a bot holding a perch or ambush spot (`spots.json` `chosen`), telemetry shows its position and watch angle, and the map draws a dashed square with a tick toward the watch angle.
+- **Match list, season table, footer (milestone 3):**
+  - The MATCHES sheet opens over the layout under the top bar. The layout itself is unchanged.
+  - The list is newest first, grouped by UTC date. Each row has the time, map, duration, the winner (TIE on equal frags) and second and third.
+  - The season table sums each index entry's `standings`: matches played, displayed frags, deaths and K/D per bot, ranked by frags.
+  - The footer, one 18 px line under the layout (the end of the scroll on phones), shows `status.json` `last_success`. It reads STALE after ten hours, and lists failed runs since.
 - **Not recorded, so not shown:**
   - which weapon is held in slots 1 and 3 in schema 1 bundles (`SG/SSG`, `FIST/SAW`);
   - per-tic engine counters;

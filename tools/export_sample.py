@@ -38,6 +38,14 @@ def reencode_args(src, dst, crf):
             "-crf", str(crf), "-pix_fmt", "yuv420p", "-g", "35", "-r", "35", "-movflags", "+faststart", dst]
 
 
+def standings(m):
+    """Displayed frags and deaths per bot (match.json score.rows), best first: frags, then fewer deaths, then slot."""
+    rows = {r["slot"]: r for r in m["score"]["rows"]}
+    out = [{"slot": b["slot"], "code": b["code"], "name": b["name"],
+            "frags": rows[b["slot"]]["displayed_frags"], "deaths": rows[b["slot"]]["displayed_deaths"]} for b in m["bots"]]
+    return sorted(out, key=lambda s: (-s["frags"], s["deaths"], s["slot"]))
+
+
 def write_index(dest, index_path):
     entries = []
     for name in sorted(os.listdir(dest)):
@@ -48,7 +56,8 @@ def write_index(dest, index_path):
             m = json.load(f)
         rel = os.path.relpath(os.path.join(dest, name), os.path.dirname(index_path)).replace(os.sep, "/")
         entries.append({"id": m["id"], "map": m["map"], "iwad": m["iwad"]["name"], "date": m["date"],
-                        "duration_tics": m["duration_tics"], "path": rel + "/"})
+                        "duration_tics": m["duration_tics"], "ticrate": m["ticrate"], "path": rel + "/",
+                        "standings": standings(m)})
     entries.sort(key=lambda e: e["date"], reverse=True)
     with open(index_path, "w") as f:
         json.dump({"bundles": entries}, f, indent=2)
