@@ -116,6 +116,7 @@ class App {
       + '<div class="vt-dim"></div><header class="t-hd"></header><div class="vt-resp"></div><footer class="t-ft"></footer></div>';
     const video = el.querySelector('video');
     video.muted = true;
+    video.crossOrigin = 'anonymous'; // Blob-hosted feeds stay readable (frame checks, canvas) under its ACAO *
     video.src = src;
     el.addEventListener('click', () => this.focusBot(slot));
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.focusBot(slot); });
