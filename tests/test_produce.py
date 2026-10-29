@@ -64,6 +64,7 @@ def no_vizdoom(monkeypatch):
     monkeypatch.setattr(produce, "freedoom_hashes", lambda cfg: {"f" * 64} | set(cfg.get("freedoom_sha256") or []))
     monkeypatch.setattr(produce, "validate", lambda d: None)
     monkeypatch.setattr(produce, "fetch_json", lambda url: None)
+    monkeypatch.setattr(produce, "confirm_public", lambda url, body: None)
 
 
 # ---------------------------------------------------------------- rotation and seeds
@@ -121,14 +122,61 @@ def test_bundle_uploads_never_overwrite_and_index_goes_last(tmp_path, no_vizdoom
     assert blob.read_env(env_path)["BLOB_PUBLIC_BASE"] == "https://abc.public.blob.vercel-storage.com"
 
 
-def test_a_stale_remote_index_does_not_drop_the_entry_this_box_last_wrote(tmp_path, monkeypatch):
-    old = {"id": "20261028T192000Z-E1M5-s1", "date": "2026-10-28T19:20:00Z"}
-    new = {"id": "20261029T032000Z-MAP01-s2", "date": "2026-10-29T03:20:00Z"}
-    store = FakeStore({"index.json": (json.dumps({"bundles": [old]}).encode(), 60)})  # the CDN's previous version
-    monkeypatch.setattr(produce, "fetch_json", lambda url: json.loads(store.files["index.json"][0]))
-    (tmp_path / "index.json").write_text(json.dumps({"bundles": [new, old]}))
-    assert [e["id"] for e in produce.load_index(store, str(tmp_path / "index.json"))["bundles"]] == [new["id"], old["id"]]
-    assert produce.load_index(store, str(tmp_path / "none.json"))["bundles"] == [old]
+def published(tmp_path, bid="20261028T192000Z-E1M5-s1"):
+    """A store holding one complete bundle and its index, plus the matching local copy."""
+    store = FakeStore()
+    m = match_json(bid)
+    for v in m["pov"]:
+        store.files[f"bundles/{bid}/{v['path']}"] = (b"v", None)
+    store.files[f"bundles/{bid}/match.json"] = (b"{}", None)
+    entry = produce.index_entry(m, 8 + 2)
+    index = {"index_version": 1, "updated": "2026-10-28T19:30:00Z", "bundles": [entry]}
+    store.files["index.json"] = (produce.index_bytes(index), 60)
+    (tmp_path / "index.json").write_bytes(produce.index_bytes(index))
+    return store, index
+
+
+def test_the_local_index_is_authoritative_when_it_agrees_with_the_store(tmp_path):
+    store, index = published(tmp_path)
+    assert produce.load_index(store, str(tmp_path / "index.json")) == index
+    assert produce.load_index(FakeStore(), str(tmp_path / "none.json"))["bundles"] == []  # a fresh store
+
+
+def test_a_run_refuses_when_the_local_index_and_the_store_disagree(tmp_path):
+    local = str(tmp_path / "index.json")
+    store, _ = published(tmp_path)
+    store.files["bundles/20261029T032000Z-MAP01-s2/match.json"] = (b"{}", None)  # published from elsewhere
+    with pytest.raises(produce.Failure, match="complete on the store but not indexed.*reindex"):
+        produce.load_index(store, local)
+    store, _ = published(tmp_path)
+    del store.files["bundles/20261028T192000Z-E1M5-s1/pov/slot3.mp4"]
+    with pytest.raises(produce.Failure, match="indexed with 10 bytes, the store holds 9"):
+        produce.load_index(store, local)
+    store, _ = published(tmp_path)
+    store.files["index.json"] = (b'{"bundles": []}', 60)  # replaced by a reindex on another box
+    with pytest.raises(produce.Failure, match="index.json on the store is 15 bytes"):
+        produce.load_index(store, local)
+    store, _ = published(tmp_path)
+    with pytest.raises(produce.Failure, match=r"none.json \(missing\) disagrees"):
+        produce.load_index(store, str(tmp_path / "none.json"))
+    store, _ = published(tmp_path)
+    store.files["bundles/20261029T032000Z-MAP01-s2/pov/slot1.mp4"] = (b"v", None)  # an interrupted upload is fine
+    produce.load_index(store, local)
+
+
+def test_reindex_reads_match_json_from_this_box_before_the_public_url(tmp_path, no_vizdoom, monkeypatch):
+    bid = "20261029T092000Z-MAP10-s2026102901"
+    d = write_bundle(tmp_path, bid)
+    store = FakeStore()
+    produce.upload_bundle(store, str(d), json.loads((d / "match.json").read_text()))
+    monkeypatch.setattr(produce, "fetch_json", lambda url: pytest.fail("read the public URL"))
+
+    class Args:
+        dry_run, env = False, str(tmp_path / "env")
+    (tmp_path / "env").write_text('BLOB_READ_WRITE_TOKEN="x"\n')
+    produce.reindex(Args, {"out_dir": str(tmp_path)}, {}, store)
+    index = produce.load_index(store, str(tmp_path / "index.json"))
+    assert [e["id"] for e in index["bundles"]] == [bid]
 
 
 def test_a_resumed_upload_keeps_equal_files_and_refuses_different_ones(tmp_path, no_vizdoom):
@@ -155,16 +203,16 @@ def test_a_failed_run_records_status_and_leaves_index_alone(tmp_path, monkeypatc
     cfg_path.write_text(json.dumps({**CFG, "out_dir": str(tmp_path / "out")}))
     env_path = tmp_path / "env"
     env_path.write_text('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_abc_secret"\n')
-    store = FakeStore({"index.json": (b'{"bundles": []}', 60)})
+    store = FakeStore()
     monkeypatch.setattr(produce.blob, "Blob", lambda token, store_id=None: store)
-    monkeypatch.setattr(produce, "fetch_json", lambda url: json.loads(store.files[url.split(".com/")[1]][0]))
+    monkeypatch.setattr(produce, "fetch_json", lambda url: pytest.fail("read the public URL"))
     monkeypatch.setattr(produce, "free_gb", lambda p: 100.0)
     for n in (1, 2):
         code = produce.main(["--config", str(cfg_path), "--env", str(env_path), "run", "--iwad", "/missing.wad"])
         assert code == 1
         status = json.loads(store.files["status.json"][0])
         assert status["consecutive_failures"] == n and "IWAD not found" in status["last_error"]
-    assert store.files["index.json"][0] == b'{"bundles": []}' and "index.json" not in store.puts
+    assert "index.json" not in store.files and "index.json" not in store.puts
 
 
 def test_disk_check_refuses_under_the_minimum(tmp_path, monkeypatch):

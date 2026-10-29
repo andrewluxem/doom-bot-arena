@@ -4,9 +4,10 @@ Three times a day a systemd user timer on the match box runs `make produce`. Tha
 
 ```
 timer ──> make produce ──> docker: tools/produce.py run
-            disk check (>= min_free_gb) ─> next map in rotation ─> seed ─> engine.runner (once more on failure)
+            disk check (>= min_free_gb) ─> local index.json checked against the store (API) ─> next map in rotation ─> seed ─> engine.runner (once more on failure)
             ─> POV videos re-encoded at crf 32 ─> engine.validate_bundle ─> IWAD gate
             ─> bundles/<id>/* uploaded (never overwritten), match.json last ─> index.json (max-age 60)
+            ─> one HEAD of the public index.json, logged
             ─> local bundles beyond keep_local deleted ─> status.json (max-age 60)
           any failure ─> status.json (last_error, consecutive_failures + 1), exit 1, index.json untouched
 ```
@@ -19,7 +20,7 @@ timer ──> make produce ──> docker: tools/produce.py run
 | Credentials | `~/.config/doom-bot-arena/env` (template: `env.example`) |
 | Timer | `deploy/systemd/dba-produce.{service,timer}`, installed by `make install-timer` |
 | Local bundles | `bundles/production/<id>/` (published copies), `bundles/production/raw/.capture/<id>/` (capture logs) |
-| Local state | `bundles/production/status.json`, `bundles/production/index.json` (the last index this box wrote) |
+| Local state | `bundles/production/index.json` (authoritative, see below), `bundles/production/status.json` |
 | Viewer source | `web/.env.production` sets `VITE_BLOB_PUBLIC_BASE`; `web/src/season.js` has the match list, season table and footer |
 
 ## Store layout
@@ -37,9 +38,30 @@ Pathnames have no random suffix. Within a bundle, `match.json` is uploaded last,
 
 `status.json` is `{last_run, last_run_ok, last_success, last_bundle_id, consecutive_failures, free_disk_gb, last_error}`.
 
+## Index authority
+
+`bundles/production/index.json` on the match box is the authoritative index. This box is the only writer. Every upload of `index.json` writes the same bytes to the local copy, and every run decides rotation and seed from the local copy alone. The runner never reads the store's public URL to learn what is published.
+
+Before each run (and each `make produce-publish`), the local copy is checked against the store through the Blob API (`vercel.com/api/blob`, list and head):
+
+- `index.json` on the store has the same size as the local copy (missing is fine only while nothing is published);
+- every indexed bundle has its `match.json` on the store, and its files there add up to the entry's `bytes`;
+- every bundle on the store that has a `match.json` is indexed. A bundle without one is an interrupted upload and is ignored.
+
+If any check fails, the run refuses with `local index … disagrees with the store: <reasons>`. That is recorded in `status.json` like any failure, and nothing is uploaded. The repair is `make produce-reindex` (below), which rebuilds the index from the store and replaces both copies. A missing local copy with bundles on the store (a new box, or a wiped `bundles/`) is a disagreement too, with the same repair.
+
+## Public URL: no polling
+
+The public URL (`BLOB_PUBLIC_BASE`) is for the viewer. Vercel's firewall challenges an IP that requests it in a tight loop: it answers 403 with `x-vercel-mitigated: challenge` for every file on the store, and this machine then can't read anything there for a while. A 5-second curl loop on `index.json` set this off in October 2026.
+
+- The runner sends exactly one request to the public URL per publish: a `HEAD` of `index.json` after the upload, with a 60-second timeout and no retry. It logs whether the CDN already serves the new version. It never fails the run, and a stale answer is expected for up to 60 s (`max-age`).
+- `make produce-reindex` reads each bundle's `match.json` from this box when it has a copy of the size the store lists, and from the public URL (once per bundle) only otherwise.
+- Don't poll the public URL from this box with `watch`, `until curl …` or similar. To check propagation, send single requests minutes apart. To see what is published, use `bundles/production/index.json` or the store listing in the Vercel dashboard.
+- If the box does get challenged, stop whatever is polling and wait. Publishing still works, because uploads, list and head go through the API, not the public URL.
+
 ### What a run decides
 
-- **Map:** the entry after the newest indexed bundle's map in `maps`. Entries with `if_present: true` are skipped while their IWAD file is missing.
+- **Map:** the entry after the newest bundle's map in the local index in `maps`. Entries with `if_present: true` are skipped while their IWAD file is missing.
 - **Seed:** `YYYYMMDD * 100 + n` (UTC date), where `n` is 1 for the day's first published bundle. A failed run's retry gets the same seed.
 - **Spot traffic:** the map entry's `traffic` directories (MAP10 and E1M5 use the eval-2c and eval-2d bundles, as eval-2e did). MAP01 has none, so spots use the route scorer.
 - **Videos:** the capture encodes at crf 23. The published copy is re-encoded at `crf` (32). `match.json` `publish_reencode` keeps the originals' hashes and the exact command, so the copy still validates.
@@ -57,7 +79,7 @@ Pathnames have no random suffix. Within a bundle, `match.json` is uploaded last,
 2. If you keep the MAP10 and E1M5 spot traffic, copy `bundles/eval-2c` and `bundles/eval-2d` from the old box. Without them, those maps fall back to the route scorer: the runner logs "spot traffic: routes".
 3. Create the env file (next section). Then run `make produce` once by hand and check the result:
    ```
-   curl -s "$BLOB_PUBLIC_BASE/status.json"
+   cat bundles/production/status.json bundles/production/index.json
    ```
 4. Install the timer: `make install-timer`.
 
@@ -114,14 +136,14 @@ Pausing does not change `status.json`. Within ten hours the footer turns STALE. 
 
 ## Re-publishing index.json
 
-If `index.json` is ever corrupted or lost, rebuild it from the bundles on Blob:
+If a run refuses because the local index disagrees with the store, or `index.json` is ever corrupted or lost, rebuild it from the bundles on Blob:
 
 ```
 make produce-reindex PRODUCE_ARGS=--dry-run   # print the rebuilt index
 make produce-reindex                          # upload it and replace the local copy
 ```
 
-`reindex` lists `bundles/` on the store and keeps every bundle that has a `match.json` and all the files it lists. It reads standings from each `match.json` and writes the index newest first. Incomplete bundles are logged as skipped. The CDN picks up the new index within a minute.
+`reindex` lists `bundles/` on the store and keeps every bundle that has a `match.json` and all the files it lists. It reads standings from each `match.json` (the local copy when present, see the no-polling rule) and writes the index newest first, to the store and to the local copy. Incomplete bundles are logged as skipped. The CDN picks up the new index within a minute.
 
 To drop a bundle from the site, delete its `bundles/<id>/` files from the store in the Vercel dashboard (Storage, then the store), then run `make produce-reindex`. Reindex also replaces the local copy, so the next run won't re-add the bundle.
 
@@ -131,12 +153,12 @@ To publish a local bundle by hand: `make produce-publish BUNDLE=bundles/producti
 
 The footer shows `status.json` `last_success`. It reads STALE when that is more than ten hours old, meaning at least one scheduled run has produced nothing. Check, in order:
 
-1. **Did the run fail?** `curl -s "$BLOB_PUBLIC_BASE/status.json"`. Look at `last_run_ok`, `last_error` and `consecutive_failures`. The footer also shows "N FAILED RUNS SINCE". Then `journalctl --user -u dba-produce -n 200` for the full output.
+1. **Did the run fail?** `cat bundles/production/status.json`. Look at `last_run_ok`, `last_error` and `consecutive_failures`. The footer also shows "N FAILED RUNS SINCE". Then `journalctl --user -u dba-produce -n 200` for the full output.
    - `refusing to start: N GB free`: free disk under `min_free_gb`. Clear old evaluation bundles under `bundles/` or `out/`, or lower `keep_local`.
    - `match failed twice`: see the capture logs in `bundles/production/raw/.capture/<id>/` (`runner.log`, `slot*/log.txt`).
    - `failed validation`: the run log lists each failed check. The re-encoded bundle is in `bundles/production/<id>/`. Run `make docker-validate BUNDLE=bundles/production/<id>` to see it again.
    - `blob API 401/403`: the token was rotated or revoked. Update the env file.
-   - `index.json on Blob is unreadable`: re-publish it (above).
+   - `local index … disagrees with the store`: run `make produce-reindex PRODUCE_ARGS=--dry-run`, check the bundles it lists, then `make produce-reindex` (above).
 2. **Did the run happen?** `systemctl --user list-timers dba-produce.timer` (LAST and NEXT), and `loginctl show-user $USER -p Linger` (must be `yes`). Also check that Docker is running: `docker info`.
 3. **Is the box up and online?** If `last_run` in `status.json` is old too, the box was off or offline. `Persistent=true` runs one catch-up at boot.
-4. **Is the footer itself stale?** `status.json` is cached for 60 s at the CDN. The viewer fetches it with `cache: no-cache` on every page load, so reloading shows the new value.
+4. **Is the footer itself stale?** `status.json` is cached for 60 s at the CDN. The viewer fetches it with `cache: no-cache` on every page load, so reloading shows the new value. The local `bundles/production/status.json` is the runner's own record. Read that rather than polling the public one.

@@ -8,11 +8,11 @@ Runs inside the match image (make produce). Credentials come only from the env f
 never printed. A run: disk check, next map in rotation, seed from the UTC date and the day's sequence, the match
 (run once more if it fails, as the Makefile does), the POV videos re-encoded at the configured crf, validation,
 upload of every bundle file (never overwriting), index.json last, then local bundles beyond keep_local deleted.
-Any failure is recorded in status.json and exits 1 without touching index.json.
+Any failure is recorded in status.json and exits 1 without touching index.json. The local index.json is
+authoritative; it is checked against the store through the API before each run (docs/PRODUCTION.md).
 """
 import argparse
 import concurrent.futures
-import contextlib
 import datetime as dt
 import fcntl
 import json
@@ -91,53 +91,96 @@ def check_freedoom(sha, name, cfg, allow):
                   "set allow_non_freedoom in the config or pass --allow-non-freedoom")
 
 
-# ---------------------------------------------------------------- remote state
+# ---------------------------------------------------------------- index authority
+# The local copy of index.json (out_dir/index.json) is authoritative: this box is the only writer, and the
+# runner never reads the public URL to find out what is published. Before a run it checks the copy against the
+# store through the API (list and head); if they disagree it refuses, and `reindex` is the repair.
 def fetch_json(url):
-    """GET a public Blob URL past the CDN cache (the query string is a distinct cache key)."""
-    sep = "&" if "?" in url else "?"
-    with urllib.request.urlopen(f"{url}{sep}nocache={dt.datetime.now().timestamp():.0f}", timeout=60) as r:
+    """GET a public Blob URL. Only reindex uses it, once per bundle whose match.json is not on this box."""
+    with urllib.request.urlopen(url, timeout=60) as r:
         return json.loads(r.read())
 
 
-def remote_json(store, pathname):
-    """(found, data) for a root file such as index.json. A file that is there but unreadable raises Failure."""
-    meta = store.head(pathname)
+def index_bytes(index):
+    """index.json exactly as uploaded and as kept locally, so the store's size can be compared."""
+    return (json.dumps(index, indent=1) + "\n").encode()
+
+
+def store_bundles(store):
+    """{bundle id: {relative path: listing entry}} for everything under bundles/ on the store."""
+    by_id = {}
+    for b in store.list("bundles/"):
+        parts = b["pathname"].split("/", 2)
+        if len(parts) == 3:
+            by_id.setdefault(parts[1], {})[parts[2]] = b
+    return by_id
+
+
+def index_disagreements(store, index):
+    """How the local index and the store differ, as a list of reasons (empty when they agree)."""
+    problems = []
+    meta = store.head("index.json")
+    body = index_bytes(index)
     if meta is None:
-        return False, None
-    try:
-        return True, fetch_json(meta["url"])
-    except (OSError, ValueError) as e:
-        raise Failure(f"{pathname} on Blob is unreadable ({e}); see docs/PRODUCTION.md, re-publishing index.json")
+        if index["bundles"]:
+            problems.append("index.json is not on the store")
+    elif meta["size"] != len(body):
+        problems.append(f"index.json on the store is {meta['size']} bytes, the local copy {len(body)}")
+    on_store = store_bundles(store)
+    for e in index["bundles"]:
+        files = on_store.get(e["id"], {})
+        if "match.json" not in files:
+            problems.append(f"{e['id']} is indexed but has no match.json on the store")
+        elif e.get("bytes") is not None and sum(f["size"] for f in files.values()) != e["bytes"]:
+            problems.append(f"{e['id']} is indexed with {e['bytes']} bytes, the store holds "
+                            f"{sum(f['size'] for f in files.values())}")
+    indexed = {e["id"] for e in index["bundles"]}
+    for bid, files in sorted(on_store.items()):
+        if "match.json" in files and bid not in indexed:  # without match.json it is an interrupted upload
+            problems.append(f"{bid} is complete on the store but not indexed")
+    return problems
 
 
-def load_index(store, local_path=None):
-    """index.json from Blob, merged with the copy this box last wrote (local_path): the CDN can serve the
-    previous version for up to a minute after an overwrite, and a run reading it must not drop an entry."""
-    found, index = remote_json(store, "index.json")
-    if not found:
-        index = {"index_version": INDEX_VERSION, "bundles": []}
-    if not isinstance(index, dict) or not isinstance(index.get("bundles"), list):
-        raise Failure("index.json on Blob has no bundles list; see docs/PRODUCTION.md, re-publishing index.json")
-    if local_path and os.path.isfile(local_path):
+def load_index(store, local_path):
+    """The local index, checked against the store. Missing or disagreeing raises Failure: run reindex."""
+    if os.path.isfile(local_path):
         with open(local_path) as f:
-            local = json.load(f)
-        ids = {e["id"] for e in index["bundles"]}
-        index["bundles"] += [e for e in local.get("bundles", []) if e["id"] not in ids]
-        index["bundles"].sort(key=lambda e: e["date"], reverse=True)
+            index = json.load(f)
+        if not isinstance(index, dict) or not isinstance(index.get("bundles"), list):
+            raise Failure(f"{local_path} has no bundles list; run make produce-reindex (docs/PRODUCTION.md)")
+    else:
+        index = {"index_version": INDEX_VERSION, "bundles": []}
+    problems = index_disagreements(store, index)
+    if problems:
+        where = local_path if os.path.isfile(local_path) else f"{local_path} (missing)"
+        raise Failure(f"local index {where} disagrees with the store: {'; '.join(problems)}; "
+                      "run make produce-reindex (docs/PRODUCTION.md)")
     return index
 
 
+def confirm_public(url, body):
+    """One HEAD of the public URL after index.json is uploaded: 60 s cap, no retry, never fails the run.
+    The CDN may serve the previous version for up to max-age (60 s); that is logged, not waited out."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=60) as r:
+            length, age, cache = r.headers.get("content-length"), r.headers.get("age"), r.headers.get("x-vercel-cache")
+        fresh = length == str(len(body))
+        log(f"public index.json: {'new version' if fresh else f'previous version still cached ({length} bytes)'}"
+            f" (age {age}, x-vercel-cache {cache})")
+    except OSError as e:
+        log(f"public index.json HEAD failed ({e}); the upload itself succeeded")
+
+
 def put_index(store, cfg, index):
-    """Upload index.json, then keep the copy load_index merges."""
+    """Upload index.json, then write the same bytes as the authoritative local copy."""
     r = put_live(store, "index.json", index)
-    with open(os.path.join(cfg["out_dir"], "index.json"), "w") as f:
-        json.dump(index, f, indent=1)
-        f.write("\n")
+    with open(os.path.join(cfg["out_dir"], "index.json"), "wb") as f:
+        f.write(index_bytes(index))
     return r
 
 
 def put_live(store, pathname, data):
-    body = (json.dumps(data, indent=1) + "\n").encode()
+    body = index_bytes(data)
     return store.put(pathname, body, overwrite=True, max_age=LIVE_MAX_AGE)
 
 
@@ -251,7 +294,7 @@ def publish(store, env_path, env, cfg, bundle_dir, allow_non_freedoom):
     check_freedoom(m["iwad"]["sha256"], m["iwad"]["name"], cfg, allow_non_freedoom)
     log(f"validating {bundle_dir}")
     validate(bundle_dir)
-    index = load_index(store, os.path.join(cfg["out_dir"], "index.json"))  # an unreadable index stops the run here
+    index = load_index(store, os.path.join(cfg["out_dir"], "index.json"))  # a disagreeing index stops the run here
     log(f"uploading {m['id']}")
     total = upload_bundle(store, bundle_dir, m)
     entry = index_entry(m, total)
@@ -259,6 +302,7 @@ def publish(store, env_path, env, cfg, bundle_dir, allow_non_freedoom):
     r = put_index(store, cfg, new_index)
     record_public_base(env_path, env, r["url"], "index.json")
     log(f"index.json: {len(new_index['bundles'])} bundle(s), newest {new_index['bundles'][0]['id']}")
+    confirm_public(r["url"], index_bytes(new_index))
     return entry
 
 
@@ -363,24 +407,25 @@ def run(args, cfg, env, store):
 
 
 def reindex(args, cfg, env, store):
-    """Rebuild index.json from the bundles on Blob: every bundle whose match.json and listed files are all there."""
-    by_id = {}
-    for b in store.list("bundles/"):
-        parts = b["pathname"].split("/", 2)
-        if len(parts) == 3:
-            by_id.setdefault(parts[1], {})[parts[2]] = b
+    """Rebuild index.json from the bundles on Blob: every bundle whose match.json and listed files are all there.
+    match.json is read from this box's copy when its size matches the store's, else from the public URL."""
     entries = []
-    for bid, files in sorted(by_id.items()):
+    for bid, files in sorted(store_bundles(store).items()):
         if "match.json" not in files:
             log(f"  {bid}: no match.json, incomplete, skipped")
             continue
-        m = fetch_json(files["match.json"]["url"])
+        local = os.path.join(cfg["out_dir"], bid, "match.json")
+        if os.path.isfile(local) and os.path.getsize(local) == files["match.json"]["size"]:
+            with open(local) as f:
+                m = json.load(f)
+        else:
+            m = fetch_json(files["match.json"]["url"])
         need = [v["path"] for v in m["pov"]] + DATA_FILES[:3] + (["spots.json"] if m.get("schema_version", 1) >= 2 else [])
         missing = [f for f in need if f not in files]
         if missing:
             log(f"  {bid}: missing {missing}, skipped")
             continue
-        entries.append(index_entry(m, sum(f["size"] for f in files.values())))
+    entries.append(index_entry(m, sum(f["size"] for f in files.values())))
     index = {"index_version": INDEX_VERSION, "updated": now_iso(),
              "bundles": sorted(entries, key=lambda e: e["date"], reverse=True)}
     log(f"rebuilt index: {len(entries)} bundle(s)")
@@ -408,11 +453,7 @@ def previous_status(store, cfg):
     if os.path.isfile(path):
         with open(path) as f:
             return json.load(f)
-    with contextlib.suppress(Failure, blob.BlobError):
-        found, data = remote_json(store, "status.json")
-        if found and isinstance(data, dict):
-            return data
-    return {}
+    return {}  # like the index, status is kept locally and never read back from the public URL
 
 
 def main(argv=None):
