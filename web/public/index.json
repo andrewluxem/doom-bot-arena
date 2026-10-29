@@ -6,7 +6,66 @@
       "iwad": "freedoom2.wad",
       "date": "2026-10-28T06:47:03Z",
       "duration_tics": 1050,
-      "path": "sample/20261028T064703Z-MAP01-s2042/"
+      "ticrate": 35,
+      "path": "sample/20261028T064703Z-MAP01-s2042/",
+      "standings": [
+        {
+          "slot": 5,
+          "code": "ORB",
+          "name": "Orbit",
+          "frags": 3,
+          "deaths": 1
+        },
+        {
+          "slot": 8,
+          "code": "ZED",
+          "name": "Zed",
+          "frags": 2,
+          "deaths": 1
+        },
+        {
+          "slot": 1,
+          "code": "VEX",
+          "name": "Vex",
+          "frags": 1,
+          "deaths": 0
+        },
+        {
+          "slot": 6,
+          "code": "HEX",
+          "name": "Hex",
+          "frags": 1,
+          "deaths": 0
+        },
+        {
+          "slot": 3,
+          "code": "NUL",
+          "name": "Null",
+          "frags": 1,
+          "deaths": 3
+        },
+        {
+          "slot": 7,
+          "code": "PYR",
+          "name": "Pyre",
+          "frags": 0,
+          "deaths": 0
+        },
+        {
+          "slot": 2,
+          "code": "KRN",
+          "name": "Kronos",
+          "frags": 0,
+          "deaths": 2
+        },
+        {
+          "slot": 4,
+          "code": "ASH",
+          "name": "Ash",
+          "frags": 0,
+          "deaths": 2
+        }
+      ]
     },
     {
       "id": "20261028T042416Z-MAP01-s1234",
@@ -14,7 +73,66 @@
       "iwad": "freedoom2.wad",
       "date": "2026-10-28T04:24:16Z",
       "duration_tics": 1050,
-      "path": "sample/20261028T042416Z-MAP01-s1234/"
+      "ticrate": 35,
+      "path": "sample/20261028T042416Z-MAP01-s1234/",
+      "standings": [
+        {
+          "slot": 2,
+          "code": "KRN",
+          "name": "Kronos",
+          "frags": 2,
+          "deaths": 2
+        },
+        {
+          "slot": 3,
+          "code": "NUL",
+          "name": "Null",
+          "frags": 1,
+          "deaths": 0
+        },
+        {
+          "slot": 4,
+          "code": "ASH",
+          "name": "Ash",
+          "frags": 1,
+          "deaths": 0
+        },
+        {
+          "slot": 1,
+          "code": "VEX",
+          "name": "Vex",
+          "frags": 1,
+          "deaths": 1
+        },
+        {
+          "slot": 5,
+          "code": "ORB",
+          "name": "Orbit",
+          "frags": 1,
+          "deaths": 2
+        },
+        {
+          "slot": 8,
+          "code": "ZED",
+          "name": "Zed",
+          "frags": 0,
+          "deaths": 0
+        },
+        {
+          "slot": 6,
+          "code": "HEX",
+          "name": "Hex",
+          "frags": 0,
+          "deaths": 1
+        },
+        {
+          "slot": 7,
+          "code": "PYR",
+          "name": "Pyre",
+          "frags": 0,
+          "deaths": 2
+        }
+      ]
     }
   ]
 }

@@ -98,7 +98,7 @@ def test_publish_refuses_a_non_freedoom_bundle_before_any_upload(tmp_path, no_vi
     store = FakeStore({"index.json": (b'{"bundles": []}', 60)})
     d = write_bundle(tmp_path, "20261029T092000Z-E1M1-s2026102901", sha="d" * 64)
     with pytest.raises(produce.Failure, match="refusing to publish"):
-        produce.publish(store, None, {}, CFG, str(d), False)
+        produce.publish(store, None, {}, {**CFG, "out_dir": str(tmp_path)}, str(d), False)
     assert store.puts == []
 
 
@@ -107,9 +107,9 @@ def test_bundle_uploads_never_overwrite_and_index_goes_last(tmp_path, no_vizdoom
     env_path = tmp_path / "env"
     env_path.write_text("BLOB_READ_WRITE_TOKEN='x'\n")
     store = FakeStore()
-    monkeypatch.setattr(produce, "load_index", lambda s: {"bundles": [{"id": "old", "date": "2026-10-28T00:00:00Z"}]})
+    monkeypatch.setattr(produce, "load_index", lambda s, p: {"bundles": [{"id": "old", "date": "2026-10-28T00:00:00Z"}]})
     bid = "20261029T092000Z-MAP10-s2026102901"
-    entry = produce.publish(store, str(env_path), {}, CFG, str(write_bundle(tmp_path, bid)), False)
+    entry = produce.publish(store, str(env_path), {}, {**CFG, "out_dir": str(tmp_path)}, str(write_bundle(tmp_path, bid)), False)
     prefix = f"bundles/{bid}/"
     assert store.puts[-2:] == [prefix + "match.json", "index.json"]
     assert store.puts[:8] == [prefix + f"pov/slot{s}.mp4" for s in range(1, 9)]
@@ -119,6 +119,16 @@ def test_bundle_uploads_never_overwrite_and_index_goes_last(tmp_path, no_vizdoom
     assert [b["id"] for b in index["bundles"]] == [bid, "old"]
     assert entry["path"] == prefix and entry["standings"][0]["frags"] == 3
     assert blob.read_env(env_path)["BLOB_PUBLIC_BASE"] == "https://abc.public.blob.vercel-storage.com"
+
+
+def test_a_stale_remote_index_does_not_drop_the_entry_this_box_last_wrote(tmp_path, monkeypatch):
+    old = {"id": "20261028T192000Z-E1M5-s1", "date": "2026-10-28T19:20:00Z"}
+    new = {"id": "20261029T032000Z-MAP01-s2", "date": "2026-10-29T03:20:00Z"}
+    store = FakeStore({"index.json": (json.dumps({"bundles": [old]}).encode(), 60)})  # the CDN's previous version
+    monkeypatch.setattr(produce, "fetch_json", lambda url: json.loads(store.files["index.json"][0]))
+    (tmp_path / "index.json").write_text(json.dumps({"bundles": [new, old]}))
+    assert [e["id"] for e in produce.load_index(store, str(tmp_path / "index.json"))["bundles"]] == [new["id"], old["id"]]
+    assert produce.load_index(store, str(tmp_path / "none.json"))["bundles"] == [old]
 
 
 def test_a_resumed_upload_keeps_equal_files_and_refuses_different_ones(tmp_path, no_vizdoom):

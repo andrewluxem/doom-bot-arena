@@ -110,13 +110,30 @@ def remote_json(store, pathname):
         raise Failure(f"{pathname} on Blob is unreadable ({e}); see docs/PRODUCTION.md, re-publishing index.json")
 
 
-def load_index(store):
+def load_index(store, local_path=None):
+    """index.json from Blob, merged with the copy this box last wrote (local_path): the CDN can serve the
+    previous version for up to a minute after an overwrite, and a run reading it must not drop an entry."""
     found, index = remote_json(store, "index.json")
     if not found:
-        return {"index_version": INDEX_VERSION, "bundles": []}
+        index = {"index_version": INDEX_VERSION, "bundles": []}
     if not isinstance(index, dict) or not isinstance(index.get("bundles"), list):
         raise Failure("index.json on Blob has no bundles list; see docs/PRODUCTION.md, re-publishing index.json")
+    if local_path and os.path.isfile(local_path):
+        with open(local_path) as f:
+            local = json.load(f)
+        ids = {e["id"] for e in index["bundles"]}
+        index["bundles"] += [e for e in local.get("bundles", []) if e["id"] not in ids]
+        index["bundles"].sort(key=lambda e: e["date"], reverse=True)
     return index
+
+
+def put_index(store, cfg, index):
+    """Upload index.json, then keep the copy load_index merges."""
+    r = put_live(store, "index.json", index)
+    with open(os.path.join(cfg["out_dir"], "index.json"), "w") as f:
+        json.dump(index, f, indent=1)
+        f.write("\n")
+    return r
 
 
 def put_live(store, pathname, data):
@@ -135,14 +152,9 @@ def record_public_base(env_path, env, url, pathname):
 
 # ---------------------------------------------------------------- index entries
 def index_entry(m, bytes_total):
-    rows = {r["slot"]: r for r in m["score"]["rows"]}
-    standings = [{"slot": b["slot"], "code": b["code"], "name": b["name"],
-                  "frags": rows[b["slot"]]["displayed_frags"], "deaths": rows[b["slot"]]["displayed_deaths"]}
-                 for b in m["bots"]]
-    standings.sort(key=lambda s: (-s["frags"], s["deaths"], s["slot"]))
     return {"id": m["id"], "map": m["map"], "iwad": m["iwad"]["name"], "date": m["date"],
             "duration_tics": m["duration_tics"], "ticrate": m["ticrate"], "path": f"bundles/{m['id']}/",
-            "bytes": bytes_total, "standings": standings}
+            "bytes": bytes_total, "standings": export_sample.standings(m)}
 
 
 def with_entry(index, entry):
@@ -239,12 +251,12 @@ def publish(store, env_path, env, cfg, bundle_dir, allow_non_freedoom):
     check_freedoom(m["iwad"]["sha256"], m["iwad"]["name"], cfg, allow_non_freedoom)
     log(f"validating {bundle_dir}")
     validate(bundle_dir)
-    index = load_index(store)  # read before any upload: an unreadable index stops the run here
+    index = load_index(store, os.path.join(cfg["out_dir"], "index.json"))  # an unreadable index stops the run here
     log(f"uploading {m['id']}")
     total = upload_bundle(store, bundle_dir, m)
     entry = index_entry(m, total)
     new_index = with_entry(index, entry)
-    r = put_live(store, "index.json", new_index)
+    r = put_index(store, cfg, new_index)
     record_public_base(env_path, env, r["url"], "index.json")
     log(f"index.json: {len(new_index['bundles'])} bundle(s), newest {new_index['bundles'][0]['id']}")
     return entry
@@ -326,7 +338,7 @@ def run(args, cfg, env, store):
         raise Failure(f"refusing to start: {free} GB free under {out}, under {cfg['min_free_gb']} GB")
     published = []
     for _ in range(cfg.get("matches_per_run", 1)):
-        index = load_index(store)
+        index = load_index(store, os.path.join(out, "index.json"))
         entry = dict(next_map(cfg, index))
         if args.map:
             entry = next((e for e in cfg["maps"] if e["map"] == args.map.upper()), {"map": args.map.upper(), "iwad": "freedoom2"})
@@ -375,7 +387,7 @@ def reindex(args, cfg, env, store):
     if args.dry_run:
         print(json.dumps(index, indent=1))
         return []
-    r = put_live(store, "index.json", index)
+    r = put_index(store, cfg, index)  # replaces the local copy too, so a removed bundle stays removed
     record_public_base(args.env, env, r["url"], "index.json")
     return []
 

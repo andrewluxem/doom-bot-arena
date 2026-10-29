@@ -10,7 +10,9 @@
    3. One frag event: map x, kill feed, killer's tile, and the killer's POV frame (pixels matched against ffmpeg's decode).
    4. Focus and return without reload: 1-8, ESC, M, tile click, map-marker click, return button.
    5. Phone 390x844: all eight tiles reachable, dock pinned, nothing covers a nameplate.
-   6. Schema 2 bundles: the focused bot's telemetry shows its selected weapon by name, its target and its sector. */
+   6. Schema 2 bundles: the focused bot's telemetry shows its selected weapon by name, its target and its sector.
+   7. Milestone 3: with no hash the newest indexed match opens; the match list (L) lists every index entry newest first,
+      grouped by date; the season table sums the index standings; the footer shows the pipeline status. */
 import { spawn, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -45,7 +47,7 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(url);
   await page.waitForFunction(() => window.__dba && __dba.videos().every((v) => v.readyState >= 2), null, { timeout: 30000 });
-  const info = await page.evaluate(() => ({ bundle: __dba.bundle, f0: __dba.f0, n: __dba.n, rate: __dba.rate, scoreCheck: __dba.scoreCheck }));
+  const info = await page.evaluate(() => ({ bundle: __dba.bundle, base: __dba.base, source: __dba.source, f0: __dba.f0, n: __dba.n, rate: __dba.rate, scoreCheck: __dba.scoreCheck }));
   Object.assign(results, info);
   const { f0, n, rate } = info, last = f0 + n - 1;
   check('score rule reproduces match.json score.rows at the last tic', info.scoreCheck.length === 0, { mismatches: info.scoreCheck });
@@ -82,7 +84,7 @@ try {
   check(`seek: ${seeks.length} seeks (paused and playing) resync all 8 within 1 s (slowest ${slowest} ms)`, slowest <= 1000, {});
 
   /* ---------- 3. one frag event, everywhere ---------- */
-  const events = await page.evaluate(async () => (await (await fetch(new URL(`sample/${__dba.bundle}/events.jsonl`, location.href))).text()).trim().split('\n').map(JSON.parse));
+  const events = await page.evaluate(async () => (await (await fetch(new URL('events.jsonl', __dba.base))).text()).trim().split('\n').map(JSON.parse));
   const ev = events.find((e) => e.type === 'frag' && (args.event ? e.tic === +args.event : e.tic >= f0 + 5 * rate));
   results.event = ev;
   await page.evaluate((t) => __dba.seek(t, false), ev.tic - 1);
@@ -111,7 +113,7 @@ try {
     };
   }, ev);
   // Reference: decode the frames around (tic - frame0) from the served MP4 and find the closest one.
-  const k = ev.tic - f0, mp4 = await (await fetch(new URL(`sample/${results.bundle}/pov/slot${ev.actor}.mp4`, url))).arrayBuffer();
+  const k = ev.tic - f0, mp4 = await (await fetch(new URL(`pov/slot${ev.actor}.mp4`, results.base))).arrayBuffer();
   const ref = spawnSync('ffmpeg', ['-v', 'error', '-i', 'pipe:0', '-vf', `select=between(n\\,${k - 3}\\,${k + 3})`, '-fps_mode', 'passthrough', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
     { input: Buffer.from(mp4), maxBuffer: 1 << 26 });
   const shown = Buffer.from(at.pixels, 'base64'), F = 320 * 240 * 3, diffs = [];
@@ -169,7 +171,7 @@ try {
 
   /* ---------- 6. schema 2 telemetry ---------- */
   const m2 = await page.evaluate(async () => {
-    const get = async (f) => (await fetch(new URL(`sample/${__dba.bundle}/${f}`, location.href))).text();
+    const get = async (f) => (await fetch(new URL(f, __dba.base))).text();
     const m = JSON.parse(await get('match.json'));
     if (m.schema_version < 2) return null;
     const rows = (await get('tics.jsonl')).trim().split('\n').map(JSON.parse);
@@ -192,6 +194,35 @@ try {
       !m2.none && tele.includes(name) && new RegExp(`TARGET\\s+${tid}\\s+${m2.target.code}`).test(tele)
         && new RegExp(`SECTOR\\s+${r.sector}\\b`).test(tele), { telemetry: tele });
   }
+
+  /* ---------- 7. match list, season table, footer ---------- */
+  const plain = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await plain.goto(url.replace(/#.*$/, ''));
+  await plain.waitForFunction(() => window.__dba, null, { timeout: 30000 });
+  await plain.keyboard.press('l');
+  await plain.waitForSelector('.ml-sheet');
+  const m3 = await plain.evaluate(async () => {
+    const idx = await (await fetch(new URL('../../index.json', __dba.base))).json();
+    const rows = [...document.querySelectorAll('.ml-row')].map((a) => decodeURIComponent(a.getAttribute('href').slice(3)));
+    const days = [...document.querySelectorAll('.ml-day > .kick')].map((k) => k.textContent);
+    const season = [...document.querySelectorAll('.ss-table tbody tr')].map((tr) => [...tr.cells].map((c) => c.textContent));
+    const want = {};
+    for (const e of idx.bundles) for (const s of e.standings || []) { want[s.name] = want[s.name] || [0, 0, 0]; want[s.name][0] += 1; want[s.name][1] += s.frags; want[s.name][2] += s.deaths; }
+    return { opened: __dba.bundle, newest: idx.bundles[0].id, ids: idx.bundles.map((b) => b.id), rows, days,
+      season, want, footer: document.querySelector('.a-foot')?.textContent || '' };
+  });
+  await plain.keyboard.press('Escape');
+  const closed = await plain.evaluate(() => !document.querySelector('.ml-sheet'));
+  await plain.close();
+  results.m3 = m3;
+  const seasonOk = m3.season.length === Object.keys(m3.want).length && m3.season.every((r, i) => {
+    const w = m3.want[r[2]];
+    return w && +r[3] === w[0] && +r[4] === w[1] && +r[5] === w[2] && (i === 0 || +m3.season[i - 1][4] >= +r[4]);
+  });
+  check(`match list: no hash opens the newest (${m3.opened}); ${m3.rows.length} rows newest first in ${m3.days.length} date group(s); ESC closes`,
+    m3.opened === m3.newest && JSON.stringify(m3.rows) === JSON.stringify(m3.ids) && closed, {});
+  check(`season table: ${m3.season.length} bots, MP/F/D sum the index standings, ranked by frags`, seasonOk, {});
+  check(`footer: "${m3.footer}"`, /PIPELINE/.test(m3.footer) && (info.source !== 'blob' || /LAST PUBLISHED \d{4}-/.test(m3.footer)), {});
 
   /* ---------- 5. phone ---------- */
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });

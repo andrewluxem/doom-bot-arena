@@ -19,6 +19,7 @@ bundles/
 # secrets
 .env
 .env.*
+!web/.env.production
 
 # runs and benches
 out/

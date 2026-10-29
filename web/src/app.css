@@ -115,3 +115,37 @@ button.mm-hint { font: inherit; letter-spacing: inherit; }
 .L-phone .tele--compact .tele-grid .tg { padding: 8px 10px 8px 0; border-left: 0; }
 .L-phone .tele--compact .tele-grid .tg:nth-child(even) { padding-left: 10px; border-left: 1px solid var(--rule-soft); }
 .L-phone .tele--compact .tele-hd { flex-wrap: wrap; }
+
+/* ---------- pipeline footer (milestone 3): when production last published, STALE once a run is missed ---------- */
+.a-foot { flex: none; height: 18px; display: flex; align-items: center; gap: 10px; padding: 0 2px; font: 500 10px/1 var(--font-mono); letter-spacing: .08em; color: var(--ink-muted); white-space: nowrap; overflow: hidden; }
+.a-foot .kick { font-size: 10px; }
+.ft-stale { padding: 3px 5px; background: var(--ink); color: var(--surface-0); font-weight: 700; letter-spacing: .12em; }
+.ph-scroll > .a-foot { height: 28px; padding: 0 10px; }
+
+/* ---------- match list and season table (milestone 3), a sheet over the layout under the top bar ---------- */
+.ml-sheet { position: fixed; z-index: 20; inset: 70px 8px 8px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--rule-strong); background: var(--surface-0); }
+.ml-sheet--phone { inset: 40px 0 0; border-width: 1px 0 0; }
+.ml-hd { flex: none; display: flex; align-items: center; justify-content: space-between; }
+.ml-hd .kick { color: var(--ink); }
+.ml-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: 6px; }
+.ml-sheet--phone .ml-body { display: flex; flex-direction: column; overflow-y: auto; }
+.ml-panel { overflow-y: auto; }
+.ml-sheet--phone .ml-panel { flex: none; overflow: visible; }
+.ml-list, .ml-list ol { list-style: none; margin: 0; padding: 0; }
+.ml-day > .kick { display: block; margin: 12px 0 6px; }
+.ml-day:first-child > .kick { margin-top: 0; }
+.ml-row { display: grid; grid-template-columns: 46px 52px 46px minmax(0, 1fr); align-items: center; height: 30px; padding: 0 6px; border-bottom: 1px solid var(--rule-soft); color: var(--ink); text-decoration: none; font: 500 12px/1 var(--font-mono); }
+.ml-row:hover { background: var(--surface-2); }
+.ml-row.is-cur { box-shadow: inset 3px 0 0 var(--ink); background: var(--surface-2); }
+.ml-t, .ml-dur { color: var(--ink-muted); }
+.ml-map { font-weight: 700; }
+.ml-top { display: flex; align-items: center; gap: 12px; white-space: nowrap; overflow: hidden; }
+.ml-win { font-size: 9px; letter-spacing: .12em; color: var(--ink-muted); }
+.ml-bot { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-muted); }
+.ml-bot b { font-weight: 500; }
+.ml-first { color: var(--ink); }
+.ml-first b { font-weight: 700; }
+.ss-table caption { text-align: left; margin-bottom: 10px; }
+.ss-table .c-kd { width: 48px; }
+.ml-sheet--phone .ml-row { grid-template-columns: 38px 44px 38px minmax(0, 1fr); font-size: 11px; }
+.ml-sheet--phone .ml-top { gap: 8px; }
